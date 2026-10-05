@@ -110,3 +110,26 @@ def test_ci_result_must_target_a_test(env, repo):
         r = c.post("/v1/projects/PTH/ci/runs", json={"commit": _git(repo, "rev-parse", "HEAD"),
                                                      "results": [{"test": "PTH-FR-001", "result": "pass"}]})
         assert r.status_code == 422 and r.json()["error"]["code"] == "NOT_A_TEST"
+
+
+def test_evidence_for_old_commit_is_stale_and_test_status_shows_it(env, repo):
+    app, admin, ci = env
+    head = _git(repo, "rev-parse", "HEAD")
+    with client_for(app, admin) as a:
+        seed(a)
+        a.post("/v1/projects/PTH/artifacts", json={"type": "TEST", "title": "без запуска", "attributes": {"command": "pytest"}})
+        a.put("/v1/projects/PTH/repo", json={"path": str(repo)})
+    with client_for(app, ci) as c:
+        c.post("/v1/projects/PTH/ci/runs", json={"commit": head, "results": [{"test": "PTH-TEST-001", "result": "pass"}]})
+    with client_for(app, admin) as a:
+        assert a.get("/v1/projects/PTH/compliance").json()["items"][0]["status"] == "verified"
+        st = a.get("/v1/projects/PTH/tests").json()
+        assert st["head"] == head and st["counts"] == {"passed_current": 1, "not_run": 1}
+        assert st["requirements_without_test"] == []
+        # новый коммит: старое свидетельство больше не действует для HEAD
+        (repo / "more.txt").write_text("x", encoding="utf-8")
+        _git(repo, "add", "more.txt")
+        _git(repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "next")
+        assert a.get("/v1/projects/PTH/compliance").json()["items"][0]["status"] == "stale"
+        st2 = a.get("/v1/projects/PTH/tests").json()
+        assert st2["tests"][0]["state"] == "passed_old_commit"

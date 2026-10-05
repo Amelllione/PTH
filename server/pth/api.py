@@ -573,6 +573,11 @@ def add_evidence(key: str, body: dict, request: Request, session: Session = Depe
             "environment": ev.environment, "created_at": ev.created_at.isoformat()}
 
 
+@router.get("/projects/{key}/tests", summary="Состояние тестов: запускались ли, на каком коммите, для каких требований нет тестов")
+def tests_status(key: str, session: Session = Depends(get_session)):
+    return domain.test_status(session, key)
+
+
 @router.get("/projects/{key}/compliance", summary="Соответствие требований проверкам (SK-11)")
 def compliance(key: str, session: Session = Depends(get_session)):
     return domain.compliance(session, key)

@@ -422,6 +422,63 @@ def record_ci_results(session: Session, key: str, commit: str, oid: str | None, 
     return out
 
 
+def current_head(session: Session, key: str) -> str | None:
+    """HEAD подключённого репозитория (читается сейчас). None — репозиторий не подключён или недоступен."""
+    from pth import gitops
+    from pth.models import ProjectRepo
+    repo = session.get(ProjectRepo, key)
+    if repo is None:
+        return None
+    try:
+        return gitops.validate_repo(repo.path)["head"]
+    except gitops.GitError:
+        return None
+
+
+def test_status(session: Session, key: str) -> dict:
+    """Состояние каждого TEST: запускался ли, результат, на каком коммите, актуален ли для HEAD.
+    Требования без теста — отдельным списком: тест не написан."""
+    from pth.models import Evidence
+    get_project(session, key)
+    a = analyze(session, key)
+    head = current_head(session, key)
+    verifies: dict[str, list[str]] = {}
+    for r in a.relations:
+        if r.type == "verifies":
+            verifies.setdefault(r.source_uid, []).append(a.by_uid[r.target_uid].display_id)
+    tests = []
+    for art in sorted((x for x in a.by_uid.values() if x.type == "TEST"), key=lambda x: x.display_id):
+        last = session.scalar(select(Evidence).where(Evidence.test_uid == art.uid)
+                              .order_by(Evidence.created_at.desc()).limit(1))
+        command = a.revisions[art.uid].attributes.get("command")
+        if last is None:
+            state, commit = "not_run", None
+        else:
+            commit = last.commit_oid or last.commit_sha
+            if last.result == "fail":
+                state = "failed"
+            elif last.result != "pass":
+                state = "inconclusive"
+            elif not (last.verified or last.trust_level == "human_recorded"):
+                state = "pending_verification"
+            elif head is not None and commit and not head.startswith(commit) and commit != head:
+                state = "passed_old_commit"
+            else:
+                state = "passed_current" if head is not None else "passed"
+        tests.append({"test": art.display_id, "title": a.revisions[art.uid].title, "command": command,
+                      "requirements": sorted(verifies.get(art.uid, [])), "state": state,
+                      "commit": commit, "result": last.result if last else None,
+                      "ran_at": last.created_at.isoformat() if last else None})
+    covered = {r for t in tests for r in t["requirements"]}
+    untested = sorted(i.display_id for i in a.by_uid.values()
+                      if i.type in VERIFIABLE_TYPES and i.display_id not in covered
+                      and not a.revisions[i.uid].exemption_reason)
+    counts: dict[str, int] = {}
+    for t in tests:
+        counts[t["state"]] = counts.get(t["state"], 0) + 1
+    return {"head": head, "tests": tests, "counts": counts, "requirements_without_test": untested}
+
+
 def compliance(session: Session, key: str) -> dict:
     """Для каждого FR/NFR/AC: verified | failed | not_verified | stale | no_test | excluded.
 
@@ -432,6 +489,7 @@ def compliance(session: Session, key: str) -> dict:
     from pth.models import Evidence
     get_project(session, key)
     a = analyze(session, key)
+    head = current_head(session, key)
     verifies: dict[str, list[Artifact]] = {}
     for r in a.relations:
         if r.type == "verifies":
@@ -457,6 +515,9 @@ def compliance(session: Session, key: str) -> dict:
             elif not (last.verified or last.trust_level == "human_recorded"):
                 # Свидетельство CI без проверки коммита в Git — «ожидает проверки», readiness его не считает (§13.2)
                 statuses.append((test.display_id, "not_verified"))
+            elif head is not None and last.commit_oid and last.commit_oid != head:
+                # Свидетельство для другого коммита: для текущего кода не действует (§14.4)
+                statuses.append((test.display_id, "stale"))
             elif last.result == "fail":
                 statuses.append((test.display_id, "failed"))
             elif last.result != "pass":
