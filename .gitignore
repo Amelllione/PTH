@@ -1,0 +1,12 @@
+server/.venv/
+server/pth.db
+server/.pytest_cache/
+**/__pycache__/
+ui/node_modules/
+ui/dist/
+ui/storybook-static/
+backups/
+.DS_Store
+server/pth.db*
+ui/storybook-static/
+ui/tsconfig.tsbuildinfo
