@@ -14,11 +14,11 @@ const TEST_STATE: Record<string, { label: string; tone: 'ok' | 'warn' | 'bad' | 
 };
 
 const COMPLIANCE_TONE: Record<string, 'ok' | 'warn' | 'bad' | 'neutral'> = {
-  verified: 'ok', failed: 'bad', stale: 'warn', not_verified: 'warn', no_test: 'neutral',
+  verified: 'ok', partial: 'warn', failed: 'bad', stale: 'warn', not_verified: 'warn', no_test: 'neutral',
 };
 
 const STATUS_LABEL: Record<string, string> = {
-  verified: 'проверено', failed: 'упало', stale: 'устарело', not_verified: 'не проверено', no_test: 'нет теста', excluded: 'исключено',
+  verified: 'проверено', partial: 'покрыто частично', failed: 'упало', stale: 'устарело', not_verified: 'не проверено', no_test: 'нет теста', excluded: 'исключено',
 };
 
 export function VerificationScreen({ projectKey }: { projectKey: string }) {
@@ -135,7 +135,10 @@ function TestsPanel({ projectKey }: { projectKey: string }) {
             rows={d.tests.map((t) => [
               <span key="t" className="font-mono text-meta">{t.test}</span>,
               t.title,
-              <StatusText key="s" label={TEST_STATE[t.state]?.label ?? t.state} tone={TEST_STATE[t.state]?.tone ?? 'neutral'} />,
+              <span key="s" className="flex flex-col gap-0.5">
+                <StatusText label={TEST_STATE[t.state]?.label ?? t.state} tone={TEST_STATE[t.state]?.tone ?? 'neutral'} />
+                {t.coverage === 'partial' && <span className="text-meta text-warning-text">неполный набор: {t.coverage_gaps}</span>}
+              </span>,
               <span key="c" className="font-mono text-meta" title={t.commit ?? ''}>{t.commit ? t.commit.slice(0, 10) : '—'}</span>,
               <span key="r" className="font-mono text-meta">{t.requirements.join(', ') || '—'}</span>,
             ])}

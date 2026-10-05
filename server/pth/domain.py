@@ -118,15 +118,30 @@ def _add_artifact(session, key, type_, title, text, attributes, exemption_reason
     return artifact
 
 
+def check_test_coverage(type_: str, attributes: dict) -> None:
+    """Неполный набор тестов должен перечислять, что именно не покрыто, иначе он не фиксируется как неполный."""
+    if type_ != "TEST":
+        return
+    coverage = attributes.get("coverage", "full")
+    if coverage not in {"full", "partial"}:
+        raise DomainError(422, "INVALID_COVERAGE", "coverage: full | partial")
+    if coverage == "partial" and not str(attributes.get("coverage_gaps", "")).strip():
+        raise DomainError(422, "COVERAGE_GAPS_REQUIRED",
+                          "Неполный набор тестов: укажите coverage_gaps — что не покрыто")
+
+
 def create_artifact(session, key, type_, title, text, attributes, exemption_reason):
     get_project(session, key)
     if type_ == "COMMIT":
         raise DomainError(422, "USE_COMMIT_ENDPOINT", "Коммиты создаются через /commits")
+    check_test_coverage(type_, attributes)
     return _add_artifact(session, key, type_, title, text, attributes, exemption_reason)
 
 
 def add_revision(session, key, display_id, title, text, attributes, exemption_reason, expected_revision):
     artifact = get_artifact(session, key, display_id)
+    if artifact.type == "TEST":
+        check_test_coverage("TEST", attributes)
     current = latest_revision(session, artifact)
     if expected_revision is not None and expected_revision != current.number:
         raise DomainError(
@@ -465,7 +480,9 @@ def test_status(session: Session, key: str) -> dict:
                 state = "passed_old_commit"
             else:
                 state = "passed_current" if head is not None else "passed"
+        coverage = a.revisions[art.uid].attributes.get("coverage", "full")
         tests.append({"test": art.display_id, "title": a.revisions[art.uid].title, "command": command,
+                      "coverage": coverage, "coverage_gaps": a.revisions[art.uid].attributes.get("coverage_gaps"),
                       "requirements": sorted(verifies.get(art.uid, [])), "state": state,
                       "commit": commit, "result": last.result if last else None,
                       "ran_at": last.created_at.isoformat() if last else None})
@@ -527,7 +544,10 @@ def compliance(session: Session, key: str) -> dict:
             else:
                 statuses.append((test.display_id, "verified"))
         values = {s for _, s in statuses}
-        overall = next((s for s in ("failed", "stale", "not_verified") if s in values), "verified")
+        overall = next((s for s in ("failed", "stale", "not_verified") if s in values), None)
+        if overall is None:
+            partial = any(a.revisions[t.uid].attributes.get("coverage") == "partial" for t in tests)
+            overall = "partial" if partial else "verified"  # неполный набор тестов не считается полной проверкой
         items.append({"display_id": art.display_id, "status": overall,
                       "tests": [{"display_id": t, "status": s} for t, s in statuses]})
     counts: dict[str, int] = {}

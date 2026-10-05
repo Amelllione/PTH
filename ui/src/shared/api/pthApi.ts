@@ -105,7 +105,7 @@ export const pthApi = {
     request<{
       head: string | null;
       counts: Record<string, number>;
-      tests: { test: string; title: string; command: string | null; requirements: string[]; state: string; commit: string | null; result: string | null; ran_at: string | null }[];
+      tests: { test: string; title: string; command: string | null; coverage: 'full' | 'partial'; coverage_gaps: string | null; requirements: string[]; state: string; commit: string | null; result: string | null; ran_at: string | null }[];
       requirements_without_test: string[];
     }>(`${project(key)}/tests`),
   repo: (key: string) => request<{ connected: boolean; path?: string; head?: string | null; available?: boolean; note?: string }>(`${project(key)}/repo`),

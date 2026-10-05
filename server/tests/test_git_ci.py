@@ -133,3 +133,30 @@ def test_evidence_for_old_commit_is_stale_and_test_status_shows_it(env, repo):
         assert a.get("/v1/projects/PTH/compliance").json()["items"][0]["status"] == "stale"
         st2 = a.get("/v1/projects/PTH/tests").json()
         assert st2["tests"][0]["state"] == "passed_old_commit"
+
+
+def test_partial_test_set_is_recorded_not_counted_as_full(env, repo):
+    """Все тесты прошли, но набор неполный: статус partial, готовность не ready."""
+    app, admin, ci = env
+    head = _git(repo, "rev-parse", "HEAD")
+    with client_for(app, admin) as a:
+        seed(a)
+        r = a.post("/v1/projects/PTH/artifacts", json={"type": "TEST", "title": "неполный",
+                   "attributes": {"coverage": "partial"}})
+        assert r.status_code == 422 and r.json()["error"]["code"] == "COVERAGE_GAPS_REQUIRED"
+        ok = a.post("/v1/projects/PTH/artifacts", json={"type": "TEST", "title": "вход (частично)",
+                    "attributes": {"coverage": "partial", "coverage_gaps": "нет проверок ошибок пароля"}})
+        assert ok.status_code == 201
+        a.post("/v1/projects/PTH/relations", json={"type": "verifies", "source": ok.json()["display_id"], "target": "PTH-FR-001"})
+        a.put("/v1/projects/PTH/repo", json={"path": str(repo)})
+    with client_for(app, ci) as c:
+        c.post("/v1/projects/PTH/ci/runs", json={"commit": head, "results": [{"test": "PTH-TEST-001", "result": "pass"},
+                                                                          {"test": "PTH-TEST-002", "result": "pass"}]})
+    with client_for(app, admin) as a:
+        st = a.get("/v1/projects/PTH/tests").json()
+        partial = [t for t in st["tests"] if t["coverage"] == "partial"]
+        assert partial and partial[0]["coverage_gaps"] == "нет проверок ошибок пароля"
+        comp = a.get("/v1/projects/PTH/compliance").json()
+        item = next(i for i in comp["items"] if i["display_id"] == "PTH-FR-001")
+        assert item["status"] == "partial"
+        assert a.get("/v1/projects/PTH/readiness").json()["verdict"] != "ready"
