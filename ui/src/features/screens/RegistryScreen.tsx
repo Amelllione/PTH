@@ -5,10 +5,10 @@ import { Button, Pager, TextField } from '@/shared/ui';
 import { DataTable, Loaded, Section } from './common';
 import { ArtifactCard } from './ArtifactCard';
 
-export function RegistryScreen({ projectKey }: { projectKey: string }) {
+export function RegistryScreen({ projectKey, initialType = '' }: { projectKey: string; initialType?: string }) {
   const [query, setQuery] = useState('');
-  const [type, setType] = useState('');
-  const [submitted, setSubmitted] = useState({ q: '', type: '' });
+  const [type, setType] = useState(initialType);
+  const [submitted, setSubmitted] = useState({ q: '', type: initialType });
   const [selected, setSelected] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const PAGE = 20;

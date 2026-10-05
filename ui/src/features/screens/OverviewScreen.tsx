@@ -3,7 +3,7 @@ import { useAsync } from '@/shared/lib/useAsync';
 import { Badge } from '@/shared/ui';
 import { Loaded, Section } from './common';
 
-export function OverviewScreen({ projectKey, onOpenSection }: { projectKey: string; onOpenSection: (s: string) => void }) {
+export function OverviewScreen({ projectKey, onOpenSection }: { projectKey: string; onOpenSection: (s: string, filter?: { type?: string }) => void }) {
   const status = useAsync(`status:${projectKey}`, () => pthApi.status(projectKey));
   const readiness = useAsync(`readiness:${projectKey}`, () => pthApi.readiness(projectKey));
   return (
@@ -13,7 +13,7 @@ export function OverviewScreen({ projectKey, onOpenSection }: { projectKey: stri
           {(s) => (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               {Object.entries(s.artifacts).map(([type, n]) => (
-                <button key={type} type="button" onClick={() => onOpenSection('registry')} className="rounded-card border border-border bg-surface p-3 text-left">
+                <button key={type} type="button" onClick={() => onOpenSection('registry', { type })} className="rounded-card border border-border bg-surface p-3 text-left">
                   <div className="text-meta text-text-muted">{type}</div>
                   <div className="text-section font-semibold">{n}</div>
                 </button>

@@ -29,8 +29,14 @@ const SECTIONS: Section[] = ['overview', 'registry', 'lost', 'graph', 'impact', 
 
 /** Вкладка отражается в адресе (#registry), поэтому страницу можно открыть и поделиться ссылкой (§12.5). */
 function sectionFromHash(): Section {
-  const id = window.location.hash.replace('#', '') as Section;
+  const id = window.location.hash.replace('#', '').split('?')[0] as Section;
   return SECTIONS.includes(id) ? id : 'overview';
+}
+
+/** Фильтр из адреса: #registry?type=FR открывает реестр уже отфильтрованным. */
+function filterFromHash(): { type: string } {
+  const query = new URLSearchParams(window.location.hash.split('?')[1] ?? '');
+  return { type: query.get('type') ?? '' };
 }
 
 /** Корневой экран: два раздела — потерянные элементы и граф. Данные — только через pthApi. */
@@ -43,12 +49,25 @@ export function App() {
   const [projectsVersion, setProjectsVersion] = useState(0);
   const projects = useAsync(`projects:${projectsVersion}`, () => pthApi.projects());
   const [section, setSectionState] = useState<Section>(sectionFromHash);
-  const setSection = (next: Section) => {
+  const [registryFilter, setRegistryFilter] = useState<{ type: string }>(filterFromHash);
+  const [registryKey, setRegistryKey] = useState(0);
+  const setSection = (next: Section, filter?: { type?: string }) => {
     setSectionState(next);
-    window.history.replaceState(null, '', `#${next}`);
+    if (next === 'registry') {
+      const type = filter?.type ?? '';
+      setRegistryFilter({ type });
+      setRegistryKey((k) => k + 1);
+      window.history.replaceState(null, '', `#registry${type ? `?type=${type}` : ''}`);
+    } else {
+      window.history.replaceState(null, '', `#${next}`);
+    }
   };
   useEffect(() => {
-    const onHash = () => setSectionState(sectionFromHash());
+    const onHash = () => {
+      setSectionState(sectionFromHash());
+      setRegistryFilter(filterFromHash());
+      setRegistryKey((k) => k + 1);
+    };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
@@ -325,8 +344,8 @@ export function App() {
       />
 
       <div role="tabpanel" id={`main-panel-${section}`} aria-labelledby={`main-tab-${section}`}>
-        {section === 'overview' && <OverviewScreen projectKey={projectKey} onOpenSection={(s) => setSection(s as Section)} />}
-        {section === 'registry' && <RegistryScreen projectKey={projectKey} />}
+        {section === 'overview' && <OverviewScreen projectKey={projectKey} onOpenSection={(s, f) => setSection(s as Section, f)} />}
+        {section === 'registry' && <RegistryScreen key={registryKey} projectKey={projectKey} initialType={registryFilter.type} />}
         {section === 'impact' && <ImpactScreen projectKey={projectKey} />}
         {section === 'review' && <ReviewScreen projectKey={projectKey} />}
         {section === 'verify' && <VerificationScreen projectKey={projectKey} />}
