@@ -13,7 +13,9 @@ cat > "$HOOK" <<'HOOK_EOF'
 ROOT=$(git rev-parse --show-toplevel)
 ENV=${PTH_ENV:-$HOME/.config/pth/ci.env}
 [ -f "$ENV" ] || { echo "PTH: нет $ENV, тесты не запущены" >&2; exit 0; }
+set -a
 . "$ENV"
+set +a
 SHA=$(git rev-parse HEAD)
 ( "$PTH_PYTHON" "$ROOT/sdk/pth_ci.py" --commit "$SHA" >> "$ROOT/.git/pth-ci.log" 2>&1 ) &
 exit 0
