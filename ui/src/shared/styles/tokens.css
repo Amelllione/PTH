@@ -1,0 +1,103 @@
+/* Семантические токены раздела 4.2 ТЗ. HEX допускаются только здесь. */
+
+:root {
+  color-scheme: light;
+
+  --canvas: #f6f3ee;
+  --surface: #fffdfa;
+  --surface-muted: #ede7df;
+  --text: #29241f;
+  --text-muted: #6c6055;
+  --border: #d7ccc0;
+  --control-border: #8c7c6d;
+  --primary: #70533f;
+  --on-primary: #ffffff;
+  --primary-hover: #5e4433;
+  --accent-soft: #e9dbcb;
+  --accent-text: #624831;
+  --focus: #815b38;
+  --success-soft: #e3ebe0;
+  --success-text: #36523c;
+  --warning-soft: #f4e8cf;
+  --warning-text: #6c501b;
+  --danger-soft: #f2dfda;
+  --danger-text: #843e34;
+  --info-soft: #e1e8ee;
+  --info-text: #3d5268;
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --canvas: #1b1917;
+  --surface: #25221f;
+  --surface-muted: #312c27;
+  --text: #f2ece4;
+  --text-muted: #bcaf9f;
+  --border: #554a40;
+  --control-border: #9a8876;
+  --primary: #d4b89c;
+  --on-primary: #241c16;
+  --primary-hover: #e2c8ac;
+  --accent-soft: #48382c;
+  --accent-text: #e5c5a5;
+  --focus: #e6b980;
+  --success-soft: #293a2c;
+  --success-text: #c0d8c4;
+  --warning-soft: #453720;
+  --warning-text: #e7cca0;
+  --danger-soft: #462c29;
+  --danger-text: #edb7ac;
+  --info-soft: #2b3540;
+  --info-text: #bdcee0;
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-border: var(--border);
+  --color-control-border: var(--control-border);
+  --color-primary: var(--primary);
+  --color-on-primary: var(--on-primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-text: var(--accent-text);
+  --color-focus: var(--focus);
+  --color-success-soft: var(--success-soft);
+  --color-success-text: var(--success-text);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-text: var(--warning-text);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-text: var(--danger-text);
+  --color-info-soft: var(--info-soft);
+  --color-info-text: var(--info-text);
+
+  /* Типографика и геометрия, раздел 4.3 */
+  --font-sans:
+    'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
+  --text-meta: 0.75rem; /* 12px вторичные метаданные */
+  --text-meta--line-height: 1.4;
+  --text-ui: 0.875rem; /* 14px интерфейс */
+  --text-ui--line-height: 1.45;
+  --text-answer: 1rem; /* 16px текст ответа */
+  --text-answer--line-height: 1.6;
+  --text-section: 1.125rem; /* 18px заголовок секции */
+  --text-section--line-height: 1.4;
+  --text-screen: 1.375rem; /* 22px заголовок экрана */
+  --text-screen--line-height: 1.3;
+
+  --radius-control: 6px;
+  --radius-card: 8px;
+  --radius-dialog: 12px;
+
+  --spacing: 4px;
+
+  /* Геометрия оболочки, раздел 2.2 */
+  --container-answer: 800px;
+  --container-composer: 880px;
+}

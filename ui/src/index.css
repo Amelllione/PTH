@@ -1,0 +1,66 @@
+@import 'tailwindcss';
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+@import './shared/styles/tokens.css';
+
+@layer base {
+  html {
+    height: 100%;
+  }
+
+  body,
+  #root {
+    /* Рабочая высота 100dvh с безопасными отступами устройства (2.2) */
+    height: 100dvh;
+    margin: 0;
+    background-color: var(--canvas);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+
+  ::placeholder {
+    color: var(--text-muted);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Узлы SVG-графа: видимый фокус клавиатуры рисуется рамкой, потому что outline для SVG ненадёжен. */
+g[role='button']:focus-visible > rect:first-child {
+  stroke: var(--focus);
+  stroke-width: 3;
+}
+
+/* React Flow: миникарта и кнопки масштаба — по токенам темы, а не светлыми по умолчанию. */
+.react-flow__minimap {
+  background: var(--surface) !important;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+}
+.react-flow__minimap-mask {
+  fill: color-mix(in srgb, var(--canvas) 65%, transparent) !important;
+}
+.react-flow__controls-button {
+  background: var(--surface) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+  fill: var(--text) !important;
+}
+.react-flow__controls-button:hover {
+  background: var(--surface-muted) !important;
+}
