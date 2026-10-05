@@ -1,0 +1,2066 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Project Traceability Hub API",
+    "description": "Минимальный срез API по спеке PTH v0.1: проекты, артефакты с ревизиями, связи, коммиты, потерянные элементы, граф. Аутентификация и ChangeSet ещё не реализованы.",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/v1/projects": {
+      "get": {
+        "tags": [
+          "PTH"
+        ],
+        "summary": "Список проектов",
+        "operationId": "list_projects_v1_projects_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProjectOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Projects V1 Projects Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "PTH"
+        ],
+        "summary": "Создать проект",
+        "operationId": "create_project_v1_projects_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{key}": {
+      "get": {
+        "tags": [
+          "PTH"
+        ],
+        "summary": "Проект по ключу",
+        "operationId": "get_project_v1_projects__key__get",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{key}/artifacts": {
+      "post": {
+        "tags": [
+          "PTH"
+        ],
+        "summary": "Создать артефакт (первая ревизия)",
+        "operationId": "create_artifact_v1_projects__key__artifacts_post",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArtifactIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "PTH"
+        ],
+        "summary": "Список артефактов проекта",
+        "operationId": "list_artifacts_v1_projects__key__artifacts_get",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Type"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ArtifactOut"
+                  },
+                  "title": "Response List Artifacts V1 Projects  Key  Artifacts Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{key}/artifacts/{display_id}": {
+      "get": {
+        "tags": [
+          "PTH"
+        ],
+        "summary": "Артефакт с текущей ревизией",
+        "operationId": "get_artifact_v1_projects__key__artifacts__display_id__get",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          },
+          {
+            "name": "display_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Display Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{key}/artifacts/{display_id}/revisions": {
+      "post": {
+        "tags": [
+          "PTH"
+        ],
+        "summary": "Новая ревизия (старые не меняются)",
+        "operationId": "add_revision_v1_projects__key__artifacts__display_id__revisions_post",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          },
+          {
+            "name": "display_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Display Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevisionIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "PTH"
+        ],
+        "summary": "История ревизий",
+        "operationId": "list_revisions_v1_projects__key__artifacts__display_id__revisions_get",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          },
+          {
+            "name": "display_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Display Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RevisionOut"
+                  },
+                  "title": "Response List Revisions V1 Projects  Key  Artifacts  Display Id  Revisions Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{key}/relations": {
+      "post": {
+        "tags": [
+          "PTH"
+        ],
+        "summary": "Создать связь по каталогу §6.1",
+        "operationId": "create_relation_v1_projects__key__relations_post",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RelationIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RelationOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "PTH"
+        ],
+        "summary": "Связи проекта",
+        "operationId": "list_relations_v1_projects__key__relations_get",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RelationOut"
+                  },
+                  "title": "Response List Relations V1 Projects  Key  Relations Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{key}/commits": {
+      "post": {
+        "tags": [
+          "PTH"
+        ],
+        "summary": "Зарегистрировать коммит и связать его с требованиями (implements)",
+        "operationId": "create_commit_v1_projects__key__commits_post",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommitIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{key}/imports": {
+      "post": {
+        "tags": [
+          "PTH"
+        ],
+        "summary": "Импорт принятой спецификации (идемпотентен по ID и тексту)",
+        "operationId": "import_spec_v1_projects__key__imports_post",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          },
+          {
+            "name": "dry_run",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Только предпросмотр: данные не меняются",
+              "default": false,
+              "title": "Dry Run"
+            },
+            "description": "Только предпросмотр: данные не меняются"
+          },
+          {
+            "name": "as_changeset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Сохранить план черновиком ChangeSet, данные не менять",
+              "default": false,
+              "title": "As Changeset"
+            },
+            "description": "Сохранить план черновиком ChangeSet, данные не менять"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportReport"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "PTH"
+        ],
+        "summary": "Журнал импортов",
+        "operationId": "list_imports_v1_projects__key__imports_get",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ImportReport"
+                  },
+                  "title": "Response List Imports V1 Projects  Key  Imports Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{key}/changesets": {
+      "post": {
+        "tags": [
+          "PTH"
+        ],
+        "summary": "Создать черновик изменений из списка операций",
+        "operationId": "create_changeset_v1_projects__key__changesets_post",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeSetIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSetOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "PTH"
+        ],
+        "summary": "Черновики и применённые ChangeSet",
+        "operationId": "list_changesets_v1_projects__key__changesets_get",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ChangeSetOut"
+                  },
+                  "title": "Response List Changesets V1 Projects  Key  Changesets Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{key}/changesets/{uid}": {
+      "get": {
+        "tags": [
+          "PTH"
+        ],
+        "summary": "ChangeSet с операциями",
+        "operationId": "get_changeset_v1_projects__key__changesets__uid__get",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          },
+          {
+            "name": "uid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Uid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSetOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{key}/changesets/{uid}/apply": {
+      "post": {
+        "tags": [
+          "PTH"
+        ],
+        "summary": "Применить ChangeSet целиком; при ошибке ничего не записывается",
+        "operationId": "apply_changeset_v1_projects__key__changesets__uid__apply_post",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          },
+          {
+            "name": "uid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Uid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSetOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{key}/imports/{uid}": {
+      "get": {
+        "tags": [
+          "PTH"
+        ],
+        "summary": "Импорт с исходным текстом (провенанс)",
+        "operationId": "get_import_v1_projects__key__imports__uid__get",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          },
+          {
+            "name": "uid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Uid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{key}/lost": {
+      "get": {
+        "tags": [
+          "PTH"
+        ],
+        "summary": "Потерянные элементы: требования без кода и US без ФТ/ADR",
+        "operationId": "lost_v1_projects__key__lost_get",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Type"
+            }
+          },
+          {
+            "name": "priority",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^P[0-3]$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Priority"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LostOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{key}/graph": {
+      "get": {
+        "tags": [
+          "PTH"
+        ],
+        "summary": "Локальный подграф вокруг артефакта",
+        "operationId": "graph_v1_projects__key__graph_get",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          },
+          {
+            "name": "focus",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Focus"
+            }
+          },
+          {
+            "name": "depth",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 3,
+              "minimum": 1,
+              "default": 2,
+              "title": "Depth"
+            }
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "out",
+                "in",
+                "both"
+              ],
+              "type": "string",
+              "default": "both",
+              "title": "Direction"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 200,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "relation_types",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Через запятую: refines,motivates,implements",
+              "title": "Relation Types"
+            },
+            "description": "Через запятую: refines,motivates,implements"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ArtifactIn": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "US",
+              "FR",
+              "NFR",
+              "AC",
+              "ADR",
+              "COMMIT"
+            ],
+            "title": "Type"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text",
+            "default": ""
+          },
+          "attributes": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Attributes",
+            "examples": [
+              {
+                "priority": "P0"
+              }
+            ]
+          },
+          "exemption_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exemption Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "title"
+        ],
+        "title": "ArtifactIn"
+      },
+      "ArtifactOut": {
+        "properties": {
+          "display_id": {
+            "type": "string",
+            "title": "Display Id"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "US",
+              "FR",
+              "NFR",
+              "AC",
+              "ADR",
+              "COMMIT"
+            ],
+            "title": "Type"
+          },
+          "external_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Key"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "attributes": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Attributes"
+          },
+          "exemption_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exemption Reason"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "display_id",
+          "type",
+          "external_key",
+          "revision",
+          "title",
+          "text",
+          "attributes",
+          "exemption_reason",
+          "created_at"
+        ],
+        "title": "ArtifactOut"
+      },
+      "ChangeSetIn": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "operations": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Operations"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "operations"
+        ],
+        "title": "ChangeSetIn"
+      },
+      "ChangeSetOut": {
+        "properties": {
+          "uid": {
+            "type": "string",
+            "title": "Uid"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "applied"
+            ],
+            "title": "State"
+          },
+          "operations": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Operations"
+          },
+          "operation_count": {
+            "type": "integer",
+            "title": "Operation Count"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "applied_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uid",
+          "title",
+          "state",
+          "operations",
+          "operation_count",
+          "last_error",
+          "created_at",
+          "applied_at"
+        ],
+        "title": "ChangeSetOut"
+      },
+      "CommitIn": {
+        "properties": {
+          "sha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{7,40}$",
+            "title": "Sha"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "implements": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Implements",
+            "description": "display_id требований, которые реализует коммит"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sha",
+          "title"
+        ],
+        "title": "CommitIn"
+      },
+      "GraphEdge": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "refines",
+              "motivates",
+              "implements"
+            ],
+            "title": "Type"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "target": {
+            "type": "string",
+            "title": "Target"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "source",
+          "target"
+        ],
+        "title": "GraphEdge"
+      },
+      "GraphNode": {
+        "properties": {
+          "display_id": {
+            "type": "string",
+            "title": "Display Id"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "US",
+              "FR",
+              "NFR",
+              "AC",
+              "ADR",
+              "COMMIT"
+            ],
+            "title": "Type"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "lost": {
+            "type": "boolean",
+            "title": "Lost"
+          },
+          "reasons": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "no_code_link",
+                "no_reflection"
+              ]
+            },
+            "type": "array",
+            "title": "Reasons"
+          }
+        },
+        "type": "object",
+        "required": [
+          "display_id",
+          "type",
+          "title",
+          "lost",
+          "reasons"
+        ],
+        "title": "GraphNode"
+      },
+      "GraphOut": {
+        "properties": {
+          "focus": {
+            "type": "string",
+            "title": "Focus"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/GraphNode"
+            },
+            "type": "array",
+            "title": "Nodes"
+          },
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/GraphEdge"
+            },
+            "type": "array",
+            "title": "Edges"
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "focus",
+          "nodes",
+          "edges",
+          "truncated"
+        ],
+        "title": "GraphOut"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "ImportChange": {
+        "properties": {
+          "display_id": {
+            "type": "string",
+            "title": "Display Id"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "created",
+              "revised"
+            ],
+            "title": "Action"
+          }
+        },
+        "type": "object",
+        "required": [
+          "display_id",
+          "action"
+        ],
+        "title": "ImportChange"
+      },
+      "ImportDetail": {
+        "properties": {
+          "uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uid",
+            "description": "None для предпросмотра (dry_run) и черновика"
+          },
+          "changeset_uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changeset Uid",
+            "description": "Заполнено, если импорт создан как черновик"
+          },
+          "source_name": {
+            "type": "string",
+            "title": "Source Name"
+          },
+          "source_sha256": {
+            "type": "string",
+            "title": "Source Sha256"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "title": "Dry Run"
+          },
+          "created": {
+            "type": "integer",
+            "title": "Created"
+          },
+          "revised": {
+            "type": "integer",
+            "title": "Revised"
+          },
+          "unchanged": {
+            "type": "integer",
+            "title": "Unchanged"
+          },
+          "relations_created": {
+            "type": "integer",
+            "title": "Relations Created"
+          },
+          "unparsed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unparsed",
+            "description": "Строки таблиц с ID, которые не удалось разобрать"
+          },
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/ImportChange"
+            },
+            "type": "array",
+            "title": "Changes",
+            "description": "Что создано или изменено"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "source_text": {
+            "type": "string",
+            "title": "Source Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uid",
+          "source_name",
+          "source_sha256",
+          "dry_run",
+          "created",
+          "revised",
+          "unchanged",
+          "relations_created",
+          "unparsed",
+          "created_at",
+          "source_text"
+        ],
+        "title": "ImportDetail"
+      },
+      "ImportIn": {
+        "properties": {
+          "source_name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Source Name",
+            "examples": [
+              "Project_Traceability_System_Spec_v0.1.md"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 10000000,
+            "minLength": 1,
+            "title": "Text",
+            "description": "Markdown принятой спецификации"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_name",
+          "text"
+        ],
+        "title": "ImportIn"
+      },
+      "ImportReport": {
+        "properties": {
+          "uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uid",
+            "description": "None для предпросмотра (dry_run) и черновика"
+          },
+          "changeset_uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changeset Uid",
+            "description": "Заполнено, если импорт создан как черновик"
+          },
+          "source_name": {
+            "type": "string",
+            "title": "Source Name"
+          },
+          "source_sha256": {
+            "type": "string",
+            "title": "Source Sha256"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "title": "Dry Run"
+          },
+          "created": {
+            "type": "integer",
+            "title": "Created"
+          },
+          "revised": {
+            "type": "integer",
+            "title": "Revised"
+          },
+          "unchanged": {
+            "type": "integer",
+            "title": "Unchanged"
+          },
+          "relations_created": {
+            "type": "integer",
+            "title": "Relations Created"
+          },
+          "unparsed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unparsed",
+            "description": "Строки таблиц с ID, которые не удалось разобрать"
+          },
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/ImportChange"
+            },
+            "type": "array",
+            "title": "Changes",
+            "description": "Что создано или изменено"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uid",
+          "source_name",
+          "source_sha256",
+          "dry_run",
+          "created",
+          "revised",
+          "unchanged",
+          "relations_created",
+          "unparsed",
+          "created_at"
+        ],
+        "title": "ImportReport"
+      },
+      "LostItem": {
+        "properties": {
+          "display_id": {
+            "type": "string",
+            "title": "Display Id"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "US",
+              "FR",
+              "NFR",
+              "AC",
+              "ADR",
+              "COMMIT"
+            ],
+            "title": "Type"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priority"
+          },
+          "reasons": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "no_code_link",
+                "no_reflection"
+              ]
+            },
+            "type": "array",
+            "title": "Reasons"
+          },
+          "last_commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Commit"
+          },
+          "recommended_action": {
+            "type": "string",
+            "title": "Recommended Action"
+          }
+        },
+        "type": "object",
+        "required": [
+          "display_id",
+          "type",
+          "title",
+          "priority",
+          "reasons",
+          "last_commit",
+          "recommended_action"
+        ],
+        "title": "LostItem"
+      },
+      "LostOut": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LostItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "excluded": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Excluded",
+            "description": "Элементы с обоснованным исключением: не потеряны, а исключены"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "items",
+          "excluded"
+        ],
+        "title": "LostOut"
+      },
+      "ProjectIn": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9]{1,9}$",
+            "title": "Key",
+            "examples": [
+              "PTH"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "name"
+        ],
+        "title": "ProjectIn"
+      },
+      "ProjectOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "name",
+          "created_at"
+        ],
+        "title": "ProjectOut"
+      },
+      "RelationIn": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "refines",
+              "motivates",
+              "implements"
+            ],
+            "title": "Type"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source",
+            "description": "display_id источника"
+          },
+          "target": {
+            "type": "string",
+            "title": "Target",
+            "description": "display_id цели"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "source",
+          "target"
+        ],
+        "title": "RelationIn"
+      },
+      "RelationOut": {
+        "properties": {
+          "uid": {
+            "type": "string",
+            "title": "Uid"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "refines",
+              "motivates",
+              "implements"
+            ],
+            "title": "Type"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uid",
+          "type",
+          "source",
+          "target",
+          "status"
+        ],
+        "title": "RelationOut"
+      },
+      "RevisionIn": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text",
+            "default": ""
+          },
+          "attributes": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Attributes"
+          },
+          "exemption_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exemption Reason"
+          },
+          "expected_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Revision",
+            "description": "Номер ревизии, на которую опирается правка; несовпадение даёт 409."
+          }
+        },
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "title": "RevisionIn"
+      },
+      "RevisionOut": {
+        "properties": {
+          "number": {
+            "type": "integer",
+            "title": "Number"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "attributes": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Attributes"
+          },
+          "exemption_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exemption Reason"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "number",
+          "title",
+          "text",
+          "attributes",
+          "exemption_reason",
+          "created_at"
+        ],
+        "title": "RevisionOut"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}
