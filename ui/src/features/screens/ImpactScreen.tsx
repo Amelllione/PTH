@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { ArtifactCard } from './ArtifactCard';
 import { pthApi } from '@/shared/api/pthApi';
 import { useAsync } from '@/shared/lib/useAsync';
 import { Badge, Button, InlineAlert, TextField } from '@/shared/ui';
@@ -6,6 +7,7 @@ import { DataTable, Loaded, Section } from './common';
 
 export function ImpactScreen({ projectKey }: { projectKey: string }) {
   const [draft, setDraft] = useState('');
+  const [openId, setOpenId] = useState<string | null>(null);
   const [request, setRequest] = useState<{ focus: string; depth: number } | null>(null);
   const impact = useAsync(request ? `impact:${projectKey}:${request.focus}:${request.depth}` : null, () =>
     pthApi.impact(projectKey, request?.focus ?? '', request?.depth ?? 1));
@@ -30,7 +32,7 @@ export function ImpactScreen({ projectKey }: { projectKey: string }) {
                 caption="Затронутые элементы"
                 headers={['Элемент', 'Тип', 'Глубина', 'Путь', 'Правило', 'Уверенность', 'Действие']}
                 rows={d.items.map((i) => [
-                  <span key="i" className="font-mono text-meta">{i.display_id}</span>,
+                  <button key="i" type="button" aria-pressed={openId === i.display_id} onClick={() => setOpenId(i.display_id)} className="font-mono text-meta text-accent-text underline underline-offset-2">{i.display_id}</button>,
                   <Badge key="t" label={i.type} />,
                   String(i.depth),
                   <span key="p" className="font-mono text-meta">{i.path.join(' → ')}</span>,
@@ -40,6 +42,7 @@ export function ImpactScreen({ projectKey }: { projectKey: string }) {
                 ])}
               />
               <p className="text-meta text-text-muted">{d.note}</p>
+              {openId && <ArtifactCard projectKey={projectKey} displayId={openId} />}
             </>
           )}
         </Loaded>

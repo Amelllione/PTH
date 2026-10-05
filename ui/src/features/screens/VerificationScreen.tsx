@@ -4,6 +4,15 @@ import { useAsync } from '@/shared/lib/useAsync';
 import { Badge, Button, InlineAlert, Pager, TextField } from '@/shared/ui';
 import { DataTable, Loaded, Section, StatusText } from './common';
 
+const TEST_STATE: Record<string, { label: string; tone: 'ok' | 'warn' | 'bad' | 'neutral' }> = {
+  passed_current: { label: 'прошёл на HEAD', tone: 'ok' },
+  passed_old_commit: { label: 'прошёл на старом коммите', tone: 'warn' },
+  failed: { label: 'упал', tone: 'bad' },
+  inconclusive: { label: 'не определён', tone: 'warn' },
+  pending_verification: { label: 'ожидает проверки', tone: 'warn' },
+  not_run: { label: 'не запускался', tone: 'neutral' },
+};
+
 const COMPLIANCE_TONE: Record<string, 'ok' | 'warn' | 'bad' | 'neutral'> = {
   verified: 'ok', failed: 'bad', stale: 'warn', not_verified: 'warn', no_test: 'neutral',
 };
@@ -72,6 +81,10 @@ export function VerificationScreen({ projectKey }: { projectKey: string }) {
         </Loaded>
       </Section>
 
+      <Section title="Тесты" hint="Состояние тестов относительно текущего коммита. Тесты запускаются хуком после каждого коммита.">
+        <TestsPanel projectKey={projectKey} />
+      </Section>
+
       <Section title="Записать свидетельство" hint="Записывайте только реально полученный результат запуска теста. Запись неизменяема.">
         <form onSubmit={record} className="flex flex-wrap items-end gap-2" aria-label="Свидетельство">
           <TextField label="Тест" hint="например PTH-TEST-001" value={test} onChange={(e) => setTest(e.target.value)} className="w-56" />
@@ -90,7 +103,7 @@ export function VerificationScreen({ projectKey }: { projectKey: string }) {
             <>
             <DataTable caption="Свидетельства" columns="11rem minmax(0,1fr) 7rem 9rem" headers={['Когда', 'Тест', 'Результат', 'Коммит']}
               footer={<Pager page={evPage} pageSize={EV} total={total} onPage={setEvPage} label="Страницы свидетельств" />}
-              rows={rows.map((r) => [new Date(r.created_at).toLocaleString('ru-RU'), r.test ?? '—', r.result, r.commit_sha ?? '—'])} />
+              rows={rows.map((r) => [new Date(r.created_at).toLocaleString('ru-RU'), r.test ?? '—', r.result, r.commit_sha?.slice(0, 10) ?? '—'])} />
             </>
           )}
         </Loaded>
@@ -102,5 +115,39 @@ export function VerificationScreen({ projectKey }: { projectKey: string }) {
         </Loaded>
       </Section>
     </div>
+  );
+}
+
+function TestsPanel({ projectKey }: { projectKey: string }) {
+  const tests = useAsync(`tests-status:${projectKey}`, () => pthApi.testsStatus(projectKey));
+  return (
+    <Loaded state={tests} retry={tests.reload} empty={{ title: 'Тестов нет', description: 'Заведите TEST-элемент и свяжите его с требованием.', isEmpty: (d) => d.tests.length === 0 }}>
+      {(d) => (
+        <>
+          <p className="text-ui text-text-muted">
+            HEAD: <span className="font-mono">{d.head ? d.head.slice(0, 10) : '—'}</span>
+            {Object.entries(d.counts).map(([s, n]) => ` · ${TEST_STATE[s]?.label ?? s}: ${n}`).join('')}
+          </p>
+          <DataTable
+            caption="Состояние тестов"
+            columns="8rem minmax(0,1fr) 12rem 9rem 11rem"
+            headers={['Тест', 'Что проверяет', 'Состояние', 'Коммит', 'Требования']}
+            rows={d.tests.map((t) => [
+              <span key="t" className="font-mono text-meta">{t.test}</span>,
+              t.title,
+              <StatusText key="s" label={TEST_STATE[t.state]?.label ?? t.state} tone={TEST_STATE[t.state]?.tone ?? 'neutral'} />,
+              <span key="c" className="font-mono text-meta" title={t.commit ?? ''}>{t.commit ? t.commit.slice(0, 10) : '—'}</span>,
+              <span key="r" className="font-mono text-meta">{t.requirements.join(', ') || '—'}</span>,
+            ])}
+          />
+          {d.requirements_without_test.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <h3 className="text-ui font-semibold text-text">Требования без теста: {d.requirements_without_test.length}</h3>
+              <p className="font-mono text-meta text-text-muted break-words">{d.requirements_without_test.join(', ')}</p>
+            </div>
+          )}
+        </>
+      )}
+    </Loaded>
   );
 }

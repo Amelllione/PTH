@@ -1,8 +1,9 @@
-import { Fragment, useState } from 'react';
+import { useState } from 'react';
 import { pthApi } from '@/shared/api/pthApi';
 import { useAsync } from '@/shared/lib/useAsync';
 import { Button, Pager, TextField } from '@/shared/ui';
 import { DataTable, Loaded, Section } from './common';
+import { ArtifactCard } from './ArtifactCard';
 
 export function RegistryScreen({ projectKey }: { projectKey: string }) {
   const [query, setQuery] = useState('');
@@ -18,9 +19,6 @@ export function RegistryScreen({ projectKey }: { projectKey: string }) {
     }
     return pthApi.artifactsPage(projectKey, page * PAGE, PAGE, submitted.type || undefined);
   });
-  const detail = useAsync(selected ? `card:${projectKey}:${selected}` : null, () => pthApi.artifact(projectKey, selected ?? ''));
-  const revisions = useAsync(selected ? `revs:${projectKey}:${selected}` : null, () => pthApi.revisions(projectKey, selected ?? ''));
-  const relations = useAsync(selected ? `rels:${projectKey}:${selected}` : null, () => pthApi.relations(projectKey));
 
   return (
     <div className="flex flex-col gap-6">
@@ -61,47 +59,7 @@ export function RegistryScreen({ projectKey }: { projectKey: string }) {
         </Loaded>
       </Section>
 
-      {selected && (
-        <Section title={`Карточка ${selected}`}>
-          <Loaded state={detail} retry={detail.reload}>
-            {(d) => (
-              <div className="grid gap-4 lg:grid-cols-2">
-                <div className="flex flex-col gap-2 rounded-card border border-border bg-surface p-4">
-                  <h3 className="text-ui font-semibold">{d.title}</h3>
-                  <p className="whitespace-pre-wrap text-ui text-text">{d.text || 'Текст не задан.'}</p>
-                  <dl className="grid grid-cols-[auto_1fr] gap-x-3 text-meta">
-                    <dt className="text-text-muted">ревизия</dt><dd>{d.revision}</dd>
-                    <dt className="text-text-muted">внешний ключ</dt><dd className="font-mono">{d.external_key ?? '—'}</dd>
-                    {Object.entries(d.attributes).map(([k, v]) => (<Fragment key={k}><dt className="text-text-muted">{k}</dt><dd>{String(v)}</dd></Fragment>))}
-                  </dl>
-                  {d.exemption_reason && <p className="text-meta text-text-muted">Исключение: {d.exemption_reason}</p>}
-                </div>
-                <div className="flex flex-col gap-3 rounded-card border border-border bg-surface p-4">
-                  <h3 className="text-ui font-semibold">Связи</h3>
-                  <Loaded state={relations} retry={relations.reload}>
-                    {(all) => {
-                      const mine = all.filter((r) => r.source === selected || r.target === selected);
-                      return mine.length === 0 ? <p className="text-ui text-text-muted">Связей нет.</p> : (
-                        <ul className="flex flex-col gap-1 text-ui">
-                          {mine.map((r) => <li key={r.uid} className="font-mono text-meta">{r.source} —{r.type}→ {r.target}</li>)}
-                        </ul>
-                      );
-                    }}
-                  </Loaded>
-                  <h3 className="mt-2 text-ui font-semibold">История ревизий</h3>
-                  <Loaded state={revisions} retry={revisions.reload}>
-                    {(revs) => (
-                      <ol className="flex flex-col gap-1 text-meta">
-                        {[...revs].reverse().map((r) => <li key={r.number}>ревизия {r.number}: {r.title}</li>)}
-                      </ol>
-                    )}
-                  </Loaded>
-                </div>
-              </div>
-            )}
-          </Loaded>
-        </Section>
-      )}
+      {selected && <ArtifactCard projectKey={projectKey} displayId={selected} />}
     </div>
   );
 }

@@ -70,10 +70,10 @@ export function CodeScreen({ projectKey }: { projectKey: string }) {
         <Loaded state={commits} retry={commits.reload} empty={{ title: 'Коммитов нет', description: 'Зарегистрируйте коммит выше.', isEmpty: (d) => d.items.length === 0 }}>
           {({ items: rows, total }) => (
             <>
-            <DataTable caption="Коммиты" columns="9rem minmax(0,1fr) minmax(0,1fr) 11rem"
+            <DataTable caption="Коммиты" columns="7rem minmax(0,1fr) minmax(0,1fr) 11rem"
               footer={<Pager page={page} pageSize={PAGE} total={total} onPage={setPage} label="Страницы коммитов" />} headers={['SHA', 'Заголовок', 'Реализует', 'Когда']}
               rows={rows.map((c) => [
-                <button key="s" type="button" className="font-mono text-meta underline" onClick={() => setOpenSha(c.sha)}>{c.sha}</button>,
+                <button key="s" type="button" title={c.sha ?? ''} className="font-mono text-meta underline" onClick={() => setOpenSha(c.sha)}>{c.sha?.slice(0, 10)}</button>,
                 c.title,
                 c.implements.join(', ') || '—',
                 new Date(c.created_at).toLocaleString('ru-RU'),
