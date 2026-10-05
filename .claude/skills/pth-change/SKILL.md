@@ -19,14 +19,14 @@ description: Предложить и применить изменение тр�
    ```json
    {"title": "Правка PTH-FR-012", "operations": [
      {"op": "add_revision", "display_id": "PTH-FR-012", "title": "новое название",
-      "text": "новый текст", "attributes": {"priority": "P0"}, "expected_revision": 1}]}
+      "text": "новый текст", "attributes": {"priority": "P0"}}]}
    ```
    Для связи:
    ```json
    {"title": "Связь", "operations": [
      {"op": "create_relation", "type": "refines", "source": "PTH-FR-012", "target": "PTH-US-004"}]}
    ```
-   `expected_revision` — номер, который ты прочитал на шаге 1.
+   Номер ревизии (`expected_revision`) не задаётся: сервер ставит текущую ревизию сам при создании черновика. Если элемент изменили после этого, применение вернёт 409.
 3. Создай черновик: `python3 sdk/pth_client.py propose <KEY> <файл.json>`. Покажи пользователю `uid`, список операций и различие со старой ревизией: старое название и текст против нового.
 4. Спроси подтверждение. Без явного «да» ничего не применяй.
 5. Примени: `python3 sdk/pth_client.py apply-changeset <KEY> <uid>`.

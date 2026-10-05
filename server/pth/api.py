@@ -299,12 +299,24 @@ def _get_changeset(session: Session, key: str, uid: str) -> ChangeSet:
     return cs
 
 
+def stamp_operations(session: Session, key: str, operations: list[dict]) -> list[dict]:
+    """Номер ревизии ставит сервер: в add_revision клиентский expected_revision отбрасывается и заменяется
+    текущей ревизией элемента на момент создания черновика. Конфликт потом ловится при применении."""
+    out = []
+    for op in operations:
+        if isinstance(op, dict) and op.get("op") == "add_revision":
+            artifact = domain.get_artifact(session, key, str(op.get("display_id", "")))
+            op = {**op, "expected_revision": domain.latest_revision(session, artifact).number}
+        out.append(op)
+    return out
+
+
 @router.post("/projects/{key}/changesets", status_code=201, response_model=ChangeSetOut,
              summary="Создать черновик изменений из списка операций")
 def create_changeset(key: str, body: ChangeSetIn, request: Request, session: Session = Depends(get_session)):
     domain.get_project(session, key)
     cs = ChangeSet(uid=new_uid(), project_key=key, title=body.title, state="draft",
-                   operations=body.operations, created_at=utcnow())
+                   operations=stamp_operations(session, key, body.operations), created_at=utcnow())
     session.add(cs)
     domain.audit(session, key, request.state.actor, "changeset.create", cs.uid, {"title": body.title})
     session.commit()
@@ -323,7 +335,7 @@ def edit_changeset(key: str, uid: str, body: dict, request: Request, session: Se
         ops = body["operations"]
         if not isinstance(ops, list) or not (1 <= len(ops) <= 1000) or not all(isinstance(o, dict) for o in ops):
             raise domain.DomainError(422, "INVALID_OPERATIONS", "operations: список из 1–1000 объектов")
-        cs.operations = ops
+        cs.operations = stamp_operations(session, key, ops)
     domain.audit(session, key, request.state.actor, "changeset.edit", uid, {"operations": len(cs.operations)})
     session.commit()
     return _changeset_out(cs)

@@ -179,7 +179,8 @@ def execute_op(session: Session, key: str, op: dict) -> None:
         session.add(ArtifactRevision(uid=new_uid(), artifact_uid=artifact.uid, number=current.number + 1,
                                      title=op["title"], text=op.get("text", ""),
                                      attributes=op.get("attributes", {}),
-                                     exemption_reason=current.exemption_reason, created_at=utcnow()))
+                                     exemption_reason=op.get("exemption_reason", current.exemption_reason),
+                                     created_at=utcnow()))
         session.flush()
     elif kind == "create_relation":
         domain.create_relation(session, key, op["type"], op["source"], op["target"])

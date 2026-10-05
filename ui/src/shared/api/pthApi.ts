@@ -180,6 +180,8 @@ export const pthApi = {
     request<ExtractionJob>(`${project(key)}/extractions/jobs`, { method: 'POST', body }),
   job: (key: string, uid: string) =>
     request<ExtractionJob>(`${project(key)}/extractions/jobs/${encodeURIComponent(uid)}`),
+  createChangeset: (key: string, body: { title: string; operations: Record<string, unknown>[] }) =>
+    request<ChangeSet>(`${project(key)}/changesets`, { method: 'POST', body }),
   proposalsToChangeSet: (key: string, title: string, proposals: Proposal[]) =>
     request<ChangeSet>(`${project(key)}/extractions/changesets`, { method: 'POST', body: { title, proposals } }),
   createProject: (key: string, name: string) =>

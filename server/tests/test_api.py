@@ -102,6 +102,7 @@ def test_lost_requirements_and_user_stories(client):
     assert "PTH-US-002" not in ids
 
 
+@pytest.mark.covers("lost.type")
 def test_user_story_reflected_by_adr_is_not_lost(client):
     make(client, "US", "US")
     make(client, "ADR", "ADR")
@@ -129,6 +130,7 @@ def test_graph_neighbourhood_and_truncation(client):
     assert len(small["nodes"]) == 3 and small["truncated"] is True
 
 
+@pytest.mark.covers("lost.priority")
 def test_lost_filters_by_priority_and_reports_exclusions(client):
     make(client, "FR", "P0 without code", attributes={"priority": "P0"})
     make(client, "FR", "P1 without code", attributes={"priority": "P1"})
@@ -510,15 +512,19 @@ def test_review_reports_rule_based_findings(client):
     assert client.get("/v1/projects/PTH/review", params={"severity": "error"}).json()["findings"][0]["severity"] == "error"
 
 
-def test_changeset_revision_checks_expected_revision(client):
+def test_changeset_revision_is_stamped_by_server_and_conflicts_are_detected(client):
     client.post("/v1/projects/PTH/artifacts", json={"type": "FR", "title": "v1"})
-    stale = client.post("/v1/projects/PTH/changesets", json={"title": "правка", "operations": [
-        {"op": "add_revision", "display_id": "PTH-FR-001", "title": "v2", "expected_revision": 5}]}).json()["uid"]
-    assert client.post(f"/v1/projects/PTH/changesets/{stale}/apply").status_code == 409
-    good = client.post("/v1/projects/PTH/changesets", json={"title": "правка", "operations": [
-        {"op": "add_revision", "display_id": "PTH-FR-001", "title": "v2", "expected_revision": 1}]}).json()["uid"]
-    assert client.post(f"/v1/projects/PTH/changesets/{good}/apply").status_code == 200
-    assert client.get("/v1/projects/PTH/artifacts/PTH-FR-001").json()["revision"] == 2
+    # клиентский номер игнорируется: сервер ставит текущую ревизию (1)
+    draft = client.post("/v1/projects/PTH/changesets", json={"title": "правка", "operations": [
+        {"op": "add_revision", "display_id": "PTH-FR-001", "title": "v2", "expected_revision": 5}]}).json()
+    assert draft["operations"][0]["expected_revision"] == 1
+    # кто-то правит элемент раньше: черновик устаревает и применение даёт 409
+    client.post("/v1/projects/PTH/artifacts/PTH-FR-001/revisions", json={"title": "другая правка"})
+    assert client.post(f"/v1/projects/PTH/changesets/{draft['uid']}/apply").status_code == 409
+    fresh = client.post("/v1/projects/PTH/changesets", json={"title": "правка", "operations": [
+        {"op": "add_revision", "display_id": "PTH-FR-001", "title": "v3"}]}).json()["uid"]
+    assert client.post(f"/v1/projects/PTH/changesets/{fresh}/apply").status_code == 200
+    assert client.get("/v1/projects/PTH/artifacts/PTH-FR-001").json()["revision"] == 3
 
 
 def test_impact_follows_catalog_rules_with_paths(client):
@@ -728,6 +734,7 @@ def test_long_lists_are_paged(client):
     assert detail.status_code == 200 and detail.json()["implements"] == ["PTH-FR-001"]
 
 
+@pytest.mark.covers("lost.reason")
 def test_lost_reason_flag_and_code_first_order(client):
     client.post("/v1/projects/PTH/artifacts", json={"type": "US", "title": "история", "attributes": {"priority": "P0"}})
     client.post("/v1/projects/PTH/artifacts", json={"type": "FR", "title": "без кода", "attributes": {"priority": "P1"}})
@@ -738,3 +745,17 @@ def test_lost_reason_flag_and_code_first_order(client):
     everything = client.get("/v1/projects/PTH/lost").json()
     assert everything["items"][0]["display_id"] == "PTH-FR-001"  # связь с кодом — раньше user story
     assert client.get("/v1/projects/PTH/lost", params={"reason": "x"}).status_code == 422
+
+
+def test_draft_edit_of_any_card_creates_new_revision_with_attributes(client):
+    client.post("/v1/projects/PTH/artifacts", json={"type": "FR", "title": "Вход", "text": "старый текст",
+                                                    "attributes": {"area": "auth"}})
+    uid = client.post("/v1/projects/PTH/changesets", json={"title": "правка карточки", "operations": [
+        {"op": "add_revision", "display_id": "PTH-FR-001", "title": "Вход", "text": "новый текст",
+         "attributes": {"area": "auth", "priority": "P1"}, "exemption_reason": "вне первого релиза"}]}).json()["uid"]
+    assert client.post(f"/v1/projects/PTH/changesets/{uid}/apply").status_code == 200
+    card = client.get("/v1/projects/PTH/artifacts/PTH-FR-001").json()
+    assert card["revision"] == 2 and card["text"] == "новый текст"
+    assert card["attributes"] == {"area": "auth", "priority": "P1"}
+    assert card["exemption_reason"] == "вне первого релиза"
+    assert len(client.get("/v1/projects/PTH/artifacts/PTH-FR-001/revisions").json()) == 2  # старая ревизия сохранена
