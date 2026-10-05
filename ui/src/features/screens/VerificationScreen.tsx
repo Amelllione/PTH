@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { pthApi } from '@/shared/api/pthApi';
 import { useAsync } from '@/shared/lib/useAsync';
-import { Badge, Button, InlineAlert, Pager, TextField } from '@/shared/ui';
+import { Button, InlineAlert, Pager, TextField } from '@/shared/ui';
 import { DataTable, Loaded, Section, StatusText } from './common';
 
 const TEST_STATE: Record<string, { label: string; tone: 'ok' | 'warn' | 'bad' | 'neutral' }> = {
@@ -30,6 +30,11 @@ export function VerificationScreen({ projectKey }: { projectKey: string }) {
   const psi = useAsync(`psi:${projectKey}:${version}`, () => pthApi.psi(projectKey));
   const [test, setTest] = useState('');
   const [compPage, setCompPage] = useState(0);
+  const [chip, setChip] = useState<string>('all');
+  const selectChip = (next: string) => {
+    setChip(next);
+    setCompPage(0);
+  };
   const COMP = 20;
   const [result, setResult] = useState<'pass' | 'fail' | 'blocked' | 'inconclusive'>('pass');
   const [commit, setCommit] = useState('');
@@ -57,10 +62,15 @@ export function VerificationScreen({ projectKey }: { projectKey: string }) {
           {(c) => (
             <>
               <div className="flex flex-wrap gap-2">
-                {Object.entries(c.counts).map(([s, n]) => <Badge key={s} label={`${STATUS_LABEL[s] ?? s}: ${n}`} tone={s === 'verified' ? 'success' : s === 'failed' ? 'danger' : 'neutral'} />)}
+                <div role="group" aria-label="Фильтр по статусу" className="flex flex-wrap gap-2">
+                  <Chip label="все" count={c.items.filter((i) => i.status !== 'excluded').length} active={chip === 'all'} onClick={() => selectChip('all')} />
+                  {Object.entries(c.counts).filter(([s]) => s !== 'excluded').map(([s, n]) => (
+                    <Chip key={s} label={STATUS_LABEL[s] ?? s} count={n} active={chip === s} onClick={() => selectChip(s)} />
+                  ))}
+                </div>
               </div>
               {(() => {
-                const visible = c.items.filter((i) => i.status !== 'excluded');
+                const visible = c.items.filter((i) => i.status !== 'excluded' && (chip === 'all' || i.status === chip));
                 const pageItems = visible.slice(compPage * COMP, (compPage + 1) * COMP);
                 return (
                   <DataTable
@@ -115,6 +125,23 @@ export function VerificationScreen({ projectKey }: { projectKey: string }) {
         </Loaded>
       </Section>
     </div>
+  );
+}
+
+/** Чип-фильтр: нажат — показывает только этот статус. */
+function Chip({ label, count, active, onClick }: { label: string; count: number; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-ui ${
+        active ? 'border-focus bg-accent-soft text-accent-text' : 'border-border bg-surface text-text hover:bg-surface-muted'
+      }`}
+    >
+      {label}
+      <span className="font-semibold tabular-nums">{count}</span>
+    </button>
   );
 }
 
