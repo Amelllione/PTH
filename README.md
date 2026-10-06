@@ -1,6 +1,6 @@
 # Project Traceability Hub (PTH)
 
-Рабочая спецификация и правила разработки сервиса трассировки требований. Кода пока нет.
+Сервис трассировки требований: спецификация v0.1 (проект для обсуждения) и срез реализации — API (`server/`), UI (`ui/`), SDK и хуки (`sdk/`, `scripts/`).
 
 - Источник: [Project_Traceability_System_Spec_v0.1.md](Project_Traceability_System_Spec_v0.1.md) — версия 0.1, проект для обсуждения.
 - Для Claude и разработчиков: [CLAUDE.md](CLAUDE.md), затем [docs/index.md](docs/index.md).
@@ -16,6 +16,8 @@ python3 scripts/sync_spec.py --check
 ```
 
 ## Запуск
+
+Подробно: [docs/run-and-deploy.md](docs/run-and-deploy.md) (запуск, ключи доступа, развёртывание, резервные копии).
 
 API: см. [server/README.md](server/README.md). Коротко: `cd server && .venv/bin/python -m pth`, затем демо-данные `.venv/bin/python scripts/seed_demo.py`.
 

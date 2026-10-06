@@ -12,6 +12,10 @@ const meta = {
     detail: demoArtifact,
     onSelect: () => {},
     onFocus: () => {},
+    depth: 2,
+    onDepth: () => {},
+    layoutMode: 'links',
+    onLayoutMode: () => {},
   },
 } satisfies Meta<typeof GraphExplorer>;
 
@@ -31,3 +35,6 @@ export const Truncated: Story = {
 };
 
 export const NothingSelected: Story = { args: { selected: null, detail: null } };
+
+/** Узлы по окружностям вокруг центра: расстояние в связях видно сразу. */
+export const LevelsFromCenter: Story = { args: { layoutMode: 'levels' } };

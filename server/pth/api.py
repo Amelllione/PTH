@@ -1,5 +1,6 @@
 """HTTP-слой: маршруты /v1, обработка доменных ошибок и фабрика приложения."""
 import os
+from urllib.parse import quote
 from collections.abc import Iterator
 
 from fastapi import APIRouter, Depends, FastAPI, Query, Request, Response
@@ -7,13 +8,14 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from pth import auth, domain, importer, jobs, llm
+from pth import auth, domain, importer, jobs, llm, releases
 from pth.db import Base, make_engine, make_session_factory
 from pth.models import (
     Artifact, ArtifactRevision, ChangeSet, ExtractionJob, ImportSession, Project, Relation, new_uid, utcnow,
 )
 from pth.schemas import (
     ArtifactIn, ArtifactOut, ChangeSetIn, ChangeSetOut, CommitIn, Direction, GraphOut, ImportDetail,
+    ImpactRuleIn, ImpactRulePatch, CommitLinkIn, ReleaseIn, ReleaseItemsIn, ReleaseReasonIn, ReleaseDoIn, ReleaseMoveIn, ImportPreviewIn, DraftIn,
     ImportIn, ImportReport, LostOut, ProjectIn, ProjectOut, RelationIn, RelationOut, RevisionIn,
     RevisionOut, ExtractIn, ExtractOut, Proposal, ProposalsToChangeSetIn,
     ExtractionJobIn, ExtractionJobOut,
@@ -279,6 +281,18 @@ def proposals_to_changeset(key: str, body: ProposalsToChangeSetIn, session: Sess
         })
     cs = ChangeSet(uid=new_uid(), project_key=key, title=body.title, state="draft",
                    operations=operations, created_at=utcnow())
+    if body.source is not None:
+        # Источник сохранится как импорт при применении черновика: цитаты модели привязываются к строкам текста.
+        import hashlib
+        items = [{"display_id": op["display_id"], "quote": op["attributes"]["provenance"]["quote"],
+                  "verified": op["attributes"]["provenance"]["quote_verified"]} for op in operations]
+        fragments, missing = importer.proposal_fragments(body.source.text, items)
+        cs.source = {"name": body.source.name, "text": body.source.text,
+                     "sha256": hashlib.sha256(body.source.text.encode("utf-8")).hexdigest(),
+                     "report": {"fragments": fragments, "created": len(operations), "revised": 0, "unchanged": 0,
+                                "relations_created": 0, "unparsed": [], "changes": [
+                                    {"display_id": op["display_id"], "action": "created"} for op in operations],
+                                "via": "llm", "quotes_not_found": missing}}
     session.add(cs)
     session.commit()
     return _changeset_out(cs)
@@ -354,6 +368,37 @@ def get_changeset(key: str, uid: str, session: Session = Depends(get_session)):
     return _changeset_out(_get_changeset(session, key, uid))
 
 
+@router.get("/projects/{key}/changesets/{uid}/review", summary="ChangeSet для просмотра: операции понятным языком и проверка, пройдёт ли применение")
+def review_changeset(key: str, uid: str, session: Session = Depends(get_session)):
+    cs = _get_changeset(session, key, uid)
+    draft = cs.state == "draft"
+    ops = importer.describe_operations(session, key, cs.operations, check=draft)
+    out = _changeset_out(cs).model_dump(mode="json")
+    first_error = next((o for o in ops if o.get("status") == "error"), None)
+    counts: dict[str, int] = {}
+    for o in ops:
+        counts[o["kind"]] = counts.get(o["kind"], 0) + 1
+    source = None
+    if cs.source:
+        report = cs.source.get("report", {})
+        source = {"name": cs.source["name"], "sha256": cs.source["sha256"], "lines": len(cs.source["text"].splitlines()),
+                  "via": report.get("via", "import"), "fragments": [importer.normalize_fragment(f) for f in report.get("fragments", [])],
+                  "text": cs.source["text"] if draft else None}
+    return {"changeset": out, "operations": ops, "counts": counts, "checked": draft,
+            "valid": draft and first_error is None, "first_error": first_error, "source": source}
+
+
+@router.delete("/projects/{key}/changesets/{uid}", summary="Отклонить черновик: он удаляется, применённые удалять нельзя")
+def discard_changeset(key: str, uid: str, request: Request, session: Session = Depends(get_session)):
+    cs = _get_changeset(session, key, uid)
+    if cs.state != "draft":
+        raise domain.DomainError(409, "CHANGESET_APPLIED", "Применённый ChangeSet удалять нельзя: он часть истории")
+    domain.audit(session, key, request.state.actor, "changeset.discard", uid, {"title": cs.title, "operations": len(cs.operations)})
+    session.delete(cs)
+    session.commit()
+    return {"discarded": uid}
+
+
 @router.post("/projects/{key}/changesets/{uid}/apply", response_model=ChangeSetOut,
              summary="Применить ChangeSet целиком; при ошибке ничего не записывается")
 def apply_changeset(key: str, uid: str, request: Request, session: Session = Depends(get_session)):
@@ -377,6 +422,89 @@ def apply_changeset(key: str, uid: str, request: Request, session: Session = Dep
         importer.record_from_changeset(session, key, cs.source)
     session.commit()
     return _changeset_out(cs)
+
+
+@router.post("/projects/{key}/imports/preview", summary="Предпросмотр импорта таблиц: элементы, связи и строки, которые не разобрались")
+def import_preview(key: str, body: ImportPreviewIn, session: Session = Depends(get_session)):
+    return importer.build_preview(session, key, body.text)
+
+
+@router.post("/projects/{key}/drafts", status_code=201,
+             summary="Черновик из отредактированных элементов и связей (из таблиц или от модели) с сохранением источника")
+def create_draft(key: str, body: DraftIn, session: Session = Depends(get_session)):
+    import hashlib
+    domain.get_project(session, key)
+    taken: dict[str, int] = {}
+    refs: dict[str, str] = {}
+    types: dict[str, str] = {}
+    operations, fragments, changes, quotes = [], [], [], []
+    for item in body.items:
+        if item.ref in refs:
+            raise domain.DomainError(422, "DUPLICATE_REF", f"Имя {item.ref} повторяется в черновике")
+        existing = None
+        if item.display_id:
+            existing = session.scalar(select(Artifact).where(Artifact.project_key == key, Artifact.display_id == item.display_id))
+        attrs = {**(domain.latest_revision(session, existing).attributes if existing else {})}
+        if item.priority:
+            attrs["priority"] = item.priority
+        if item.quote:
+            attrs["provenance"] = {"source": "llm", "model": item.model or "", "quote": item.quote, "quote_verified": bool(item.quote_verified)}
+        if existing is not None:
+            display = existing.display_id
+            operations.append({"op": "add_revision", "display_id": display, "title": item.title, "text": item.text, "attributes": attrs})
+            changes.append({"display_id": display, "action": "revised"})
+        else:
+            if item.display_id:
+                display, number = item.display_id, item.number or int(item.display_id.rsplit("-", 1)[-1])
+            else:
+                if item.type not in taken:
+                    last = session.scalar(select(Artifact.number).where(Artifact.project_key == key, Artifact.type == item.type)
+                                          .order_by(Artifact.number.desc()).limit(1)) or 0
+                    taken[item.type] = max(last, *(int(o["number"]) for o in operations if o["op"] == "create_artifact" and o["type"] == item.type), 0) + 1
+                number = taken[item.type]
+                taken[item.type] += 1
+                display = f"{key}-{item.type}-{number:03d}"
+            operations.append({"op": "create_artifact", "display_id": display, "type": item.type, "number": number,
+                               "title": item.title, "text": item.text, "attributes": attrs,
+                               **({"external_key": item.external_key} if item.external_key else {})})
+            changes.append({"display_id": display, "action": "created"})
+        refs[item.ref] = display
+        types[display] = item.type
+        if item.line:
+            fragments.append({"display_id": display, "external_key": item.external_key, "line": item.line, "end_line": item.line,
+                              "via": "table", "cols": item.cols})
+        elif item.quote:
+            quotes.append({"display_id": display, "quote": item.quote, "verified": bool(item.quote_verified)})
+
+    def resolve(name: str) -> tuple[str, str]:
+        if name in refs:
+            return refs[name], types[refs[name]]
+        art = session.scalar(select(Artifact).where(Artifact.project_key == key, Artifact.display_id == name))
+        if art is None:
+            raise domain.DomainError(422, "LINK_TARGET_NOT_FOUND", f"Для связи не найден элемент {name}")
+        return art.display_id, art.type
+    seen = set()
+    for rel in body.relations:
+        s, st = resolve(rel.source)
+        t_, tt = resolve(rel.target)
+        allowed_s, allowed_t = domain.RELATION_RULES[rel.type]
+        if st not in allowed_s or tt not in allowed_t:
+            raise domain.DomainError(422, "INVALID_RELATION", f"Связь {rel.type} недопустима: {s} ({st}) → {t_} ({tt})")
+        if s == t_ or (rel.type, s, t_) in seen:
+            continue
+        seen.add((rel.type, s, t_))
+        operations.append({"op": "create_relation", "type": rel.type, "source": s, "target": t_})
+    cs = ChangeSet(uid=new_uid(), project_key=key, title=body.title, state="draft", operations=operations, created_at=utcnow())
+    if body.source is not None:
+        fragments += importer.proposal_fragments(body.source.text, quotes)[0] if quotes else []
+        cs.source = {"name": body.source.name, "text": body.source.text,
+                     "sha256": hashlib.sha256(body.source.text.encode("utf-8")).hexdigest(),
+                     "report": {"fragments": fragments, "created": sum(c["action"] == "created" for c in changes),
+                                "revised": sum(c["action"] == "revised" for c in changes), "unchanged": 0,
+                                "relations_created": len(seen), "unparsed": [], "changes": changes, "via": "draft"}}
+    session.add(cs)
+    session.commit()
+    return {"changeset": _changeset_out(cs).model_dump(mode="json"), "refs": refs}
 
 
 @router.get("/projects/{key}/imports/{uid}", response_model=ImportDetail,
@@ -422,7 +550,8 @@ def search(key: str, q: str = Query(min_length=1, max_length=200), type: str | N
 def context(key: str, focus: str, depth: int = Query(default=1, ge=1, le=2), session: Session = Depends(get_session)):
     card = _artifact_out(session, domain.get_artifact(session, key, focus))
     graph = domain.graph(session, key, focus, depth, "both", GRAPH_LIMIT_MAX)
-    lost_item = next((i for i in domain.lost_items(session, key)[0] if i["display_id"] == focus), None)
+    all_kinds = domain.lost_items(session, key)[0] + domain.lost_items(session, key, reason="no_code_link")[0]
+    lost_item = next((i for i in all_kinds if i["display_id"] == focus), None)
     drafts = session.scalars(select(ChangeSet).where(ChangeSet.project_key == key, ChangeSet.state == "draft"))
     return {
         "focus": card.model_dump(mode="json"),
@@ -438,6 +567,36 @@ def context(key: str, focus: str, depth: int = Query(default=1, ge=1, le=2), ses
 @router.get("/projects/{key}/impact", summary="Влияние изменения: явные пути и кандидаты (§6.4)")
 def impact(key: str, focus: str, depth: int = Query(default=2, ge=1, le=3), session: Session = Depends(get_session)):
     return domain.impact(session, key, focus, depth)
+
+
+@router.get("/projects/{key}/impact-rules", summary="Правила влияния: встроенные и свои проекта")
+def list_impact_rules(key: str, session: Session = Depends(get_session)):
+    return domain.list_impact_rules(session, key)
+
+
+@router.post("/projects/{key}/impact-rules", status_code=201, summary="Создать своё правило влияния")
+def create_impact_rule(key: str, body: ImpactRuleIn, request: Request, session: Session = Depends(get_session)):
+    out = domain.create_impact_rule(session, key, body.model_dump())
+    domain.audit(session, key, request.state.actor, "impact_rule.create", body.code,
+                 {"relation": body.relation_type, "direction": body.direction, "neighbors": body.neighbor_types})
+    session.commit()
+    return out
+
+
+@router.patch("/projects/{key}/impact-rules/{code}", summary="Включить или выключить своё правило")
+def patch_impact_rule(key: str, code: str, body: ImpactRulePatch, request: Request, session: Session = Depends(get_session)):
+    out = domain.set_impact_rule_enabled(session, key, code, body.enabled)
+    domain.audit(session, key, request.state.actor, "impact_rule.toggle", code, {"enabled": body.enabled})
+    session.commit()
+    return out
+
+
+@router.delete("/projects/{key}/impact-rules/{code}", summary="Удалить своё правило влияния")
+def delete_impact_rule(key: str, code: str, request: Request, session: Session = Depends(get_session)):
+    domain.delete_impact_rule(session, key, code)
+    domain.audit(session, key, request.state.actor, "impact_rule.delete", code)
+    session.commit()
+    return {"deleted": code}
 
 
 @router.put("/projects/{key}/repo", summary="Подключить репозиторий проекта (read-only, только admin)")
@@ -491,6 +650,11 @@ def ci_run(key: str, body: dict, request: Request, session: Session = Depends(ge
             oid = None
         if oid is None:
             raise domain.DomainError(422, "COMMIT_NOT_FOUND", f"Коммит {commit or '—'} не найден в подключённом репозитории")
+    if oid is not None:
+        # Коммит, на котором прошёл CI, регистрируется сам: ручная регистрация не нужна.
+        info = gitops.show_commit(repo.path, oid)
+        if info:
+            domain.ensure_commit(session, key, oid, info["subject"], info["author"], info["authored_at"])
     trust = "trusted_ci" if request.state.principal_kind == "service" else "human_recorded"
     created = domain.record_ci_results(session, key, commit, oid, results, trust,
                                        request.state.actor, body.get("environment", {}))
@@ -509,7 +673,9 @@ def review(response: Response, key: str, severity: str | None = Query(default=No
         findings = [f for f in findings if f["severity"] == severity]
     counts = {s: sum(1 for f in findings if f["severity"] == s) for s in ("error", "warning", "info")}
     total = len(findings)
-    return {"counts": counts, "total": total, "findings": findings[offset:offset + limit]}
+    # Пояснения всех правил проекта, а не только сработавших: справка видна и до первого замечания.
+    return {"counts": counts, "total": total, "findings": findings[offset:offset + limit],
+            "rules": domain.REVIEW_RULE_TEXT}
 
 
 @router.post("/projects/{key}/review/decisions", status_code=201, summary="Принять или снять замечание с причиной")
@@ -561,17 +727,381 @@ def commit_detail(key: str, sha: str, session: Session = Depends(get_session)):
     raise domain.DomainError(404, "COMMIT_NOT_FOUND", f"Коммит {sha} не найден")
 
 
-@router.get("/projects/{key}/sources/{uid}", summary="Исходный текст импорта с привязкой строк к требованиям")
+def _repo_or_409(session: Session, key: str):
+    from pth.models import ProjectRepo
+    repo = session.get(ProjectRepo, key)
+    if repo is None:
+        raise domain.DomainError(409, "REPO_NOT_CONNECTED", "Репозиторий проекта не подключён: коммиты читаются из Git")
+    return repo
+
+
+def _mentions(a, key: str, text: str) -> list[str]:
+    import re
+    ids = sorted(set(re.findall(rf"{re.escape(key)}-(?:US|FR|NFR|AC|ADR|TEST)-\d+", text)))
+    return [i for i in ids if any(x.display_id == i for x in a.by_uid.values())]
+
+
+@router.get("/projects/{key}/git/commits", summary="Коммиты из подключённого репозитория с данными PTH: связи, проверки, упоминания")
+def git_commits(response: Response, key: str, offset: int = Query(default=0, ge=0),
+                limit: int = Query(default=20, ge=1, le=100), session: Session = Depends(get_session)):
+    """Список читается прямо из Git, регистрировать коммиты не нужно. Связь с требованиями и проверки подтягиваются из PTH."""
+    from pth import gitops
+    from pth.models import Evidence
+    domain.get_project(session, key)
+    repo = _repo_or_409(session, key)
+    try:
+        page = gitops.log_page(repo.path, offset, limit)
+    except gitops.GitError as exc:
+        raise domain.DomainError(422, "REPO_UNAVAILABLE", str(exc))
+    a = domain.analyze(session, key)
+    registered = {x.external_key: x for x in a.by_uid.values() if x.type == "COMMIT" and x.external_key}
+    checks: dict[str, dict] = {}
+    for e in domain.latest_per_commit(session.scalars(select(Evidence).where(Evidence.project_key == key)).all()):
+        c = checks.setdefault(e.commit_oid or e.commit_sha or "", {"total": 0, "passed": 0, "failed": 0})
+        c["total"] += 1
+        c["passed"] += e.result == "pass"
+        c["failed"] += e.result == "fail"
+    items = []
+    for row in page["items"]:
+        reg = registered.get(row["sha"])
+        implements = sorted(a.by_uid[r.target_uid].display_id for r in a.relations
+                            if reg and r.type == "implements" and r.source_uid == reg.uid)
+        items.append({**row, "registered": reg.display_id if reg else None, "implements": implements,
+                      "mentions": _mentions(a, key, row["title"]), "checks": checks.get(row["sha"])})
+    response.headers["X-Total-Count"] = str(page["total"])
+    return items
+
+
+@router.post("/projects/{key}/git/sync", summary="Зарегистрировать в PTH все коммиты репозитория, которых ещё нет (идемпотентно)")
+def git_sync(key: str, request: Request, session: Session = Depends(get_session)):
+    from pth import gitops
+    domain.get_project(session, key)
+    repo = _repo_or_409(session, key)
+    try:
+        out = domain.sync_commits(session, key, repo.path)
+    except gitops.GitError as exc:
+        raise domain.DomainError(422, "REPO_UNAVAILABLE", str(exc))
+    if out["registered"]:
+        domain.audit(session, key, request.state.actor, "commit.autoregister", None, out)
+    session.commit()
+    return out
+
+
+@router.post("/projects/{key}/commits/{sha}/implements", summary="Добавить связи implements к уже зарегистрированному коммиту")
+def link_commit(key: str, sha: str, body: CommitLinkIn, request: Request, session: Session = Depends(get_session)):
+    commit, added = domain.link_commit(session, key, sha, body.implements)
+    domain.audit(session, key, request.state.actor, "commit.link", sha, {"implements": added})
+    session.commit()
+    return {"sha": sha, "display_id": commit.display_id, "added": added}
+
+
+# --- релизы ------------------------------------------------------------------------
+
+@router.get("/projects/{key}/releases", summary="Релизы проекта с продвижением")
+def list_releases(key: str, session: Session = Depends(get_session)):
+    return releases.list_releases(session, key)
+
+
+@router.post("/projects/{key}/releases", status_code=201, summary="Создать релиз (набор состава планируется отдельно)")
+def create_release(key: str, body: ReleaseIn, request: Request, session: Session = Depends(get_session)):
+    rel = releases.create_release(session, key, body.name, body.description, request.state.actor)
+    domain.audit(session, key, request.state.actor, "release.create", rel.name)
+    session.commit()
+    return releases.release_out(session, key, rel)
+
+
+@router.post("/projects/{key}/releases/move", summary="Перенести элемент между релизами (null — «не запланировано»)")
+def move_release_item(key: str, body: ReleaseMoveIn, request: Request, session: Session = Depends(get_session)):
+    out = releases.move_item(session, key, body.display_id, body.from_release, body.to_release, body.with_related)
+    domain.audit(session, key, request.state.actor, "release.move", body.display_id,
+                 {"from": body.from_release, "to": body.to_release, **out})
+    session.commit()
+    return out
+
+
+@router.get("/projects/{key}/releases/compare", summary="Сравнить состав двух релизов")
+def compare_releases(key: str, a: str, b: str, session: Session = Depends(get_session)):
+    return releases.compare(session, key, a, b)
+
+
+@router.get("/projects/{key}/releases/{uid}/report", summary="Отчёт по релизу в Markdown")
+def release_report(key: str, uid: str, session: Session = Depends(get_session)):
+    return Response(releases.report_markdown(session, key, releases._release(session, key, uid)), media_type="text/markdown; charset=utf-8")
+
+
+@router.get("/projects/{key}/releases/{uid}", summary="Релиз: состав, продвижение, решение")
+def get_release(key: str, uid: str, session: Session = Depends(get_session)):
+    return releases.release_out(session, key, releases._release(session, key, uid))
+
+
+@router.post("/projects/{key}/releases/{uid}/items", summary="Добавить в релиз US, ФТ, НФТ, AC; with_related берёт уточняющие требования")
+def add_release_items(key: str, uid: str, body: ReleaseItemsIn, request: Request, session: Session = Depends(get_session)):
+    rel = releases._release(session, key, uid)
+    added = releases.add_items(session, key, rel, body.display_ids, body.with_related)
+    domain.audit(session, key, request.state.actor, "release.add", rel.name, {"added": [x["display_id"] for x in added]})
+    session.commit()
+    return {"added": added}
+
+
+@router.delete("/projects/{key}/releases/{uid}/items/{display_id}", summary="Убрать элемент из релиза")
+def remove_release_item(key: str, uid: str, display_id: str, request: Request, with_related: bool = False,
+                        session: Session = Depends(get_session)):
+    rel = releases._release(session, key, uid)
+    removed = releases.remove_item(session, key, rel, display_id, with_related)
+    domain.audit(session, key, request.state.actor, "release.remove", rel.name, {"removed": removed})
+    session.commit()
+    return {"removed": removed}
+
+
+@router.post("/projects/{key}/releases/{uid}/freeze", summary="Зафиксировать состав: запоминаются ревизии элементов")
+def freeze_release(key: str, uid: str, request: Request, session: Session = Depends(get_session)):
+    rel = releases._release(session, key, uid)
+    releases.freeze(session, key, rel)
+    domain.audit(session, key, request.state.actor, "release.freeze", rel.name)
+    session.commit()
+    return releases.release_out(session, key, rel)
+
+
+@router.post("/projects/{key}/releases/{uid}/unfreeze", summary="Снять фиксацию (с причиной)")
+def unfreeze_release(key: str, uid: str, body: ReleaseReasonIn, request: Request, session: Session = Depends(get_session)):
+    rel = releases._release(session, key, uid)
+    releases.unfreeze(session, key, rel, body.reason)
+    domain.audit(session, key, request.state.actor, "release.unfreeze", rel.name, {"reason": body.reason})
+    session.commit()
+    return releases.release_out(session, key, rel)
+
+
+@router.post("/projects/{key}/releases/{uid}/release", summary="Выпустить релиз по тегу репозитория; с незакрытыми элементами нужна причина")
+def do_release(key: str, uid: str, body: ReleaseDoIn, request: Request, session: Session = Depends(get_session)):
+    rel = releases._release(session, key, uid)
+    snap = releases.do_release(session, key, rel, body.tag, body.reason, request.state.actor)
+    domain.audit(session, key, request.state.actor, "release.release", rel.name,
+                 {"tag": body.tag, "commit": rel.commit_oid, "blockers": len(snap["blockers"]), "reason": body.reason})
+    session.commit()
+    return releases.release_out(session, key, rel)
+
+
+@router.post("/projects/{key}/releases/{uid}/cancel", summary="Отменить релиз (с причиной)")
+def cancel_release(key: str, uid: str, body: ReleaseReasonIn, request: Request, session: Session = Depends(get_session)):
+    rel = releases._release(session, key, uid)
+    releases.cancel(session, key, rel, body.reason, request.state.actor)
+    domain.audit(session, key, request.state.actor, "release.cancel", rel.name, {"reason": body.reason})
+    session.commit()
+    return releases.release_out(session, key, rel)
+
+
+@router.get("/projects/{key}/story-map", summary="USM (карта историй): активности × релизы, под US — ФТ")
+def story_map(key: str, session: Session = Depends(get_session)):
+    return releases.story_map(session, key)
+
+
+@router.get("/projects/{key}/git/info", summary="Сведения о репозитории: ветка, авторы, теги, структура")
+def git_info(key: str, session: Session = Depends(get_session)):
+    from pth import gitops
+    domain.get_project(session, key)
+    repo = _repo_or_409(session, key)
+    try:
+        return {"path": repo.path, **gitops.repo_info(repo.path)}
+    except gitops.GitError as exc:
+        raise domain.DomainError(422, "REPO_UNAVAILABLE", str(exc))
+
+
+@router.get("/projects/{key}/git/commits/{sha}/diff", summary="Diff одного файла коммита по блокам и строкам")
+def git_commit_diff(key: str, sha: str, path: str, session: Session = Depends(get_session)):
+    from pth import gitops
+    domain.get_project(session, key)
+    repo = _repo_or_409(session, key)
+    oid = gitops.resolve_commit(repo.path, sha)
+    diff = gitops.file_diff(repo.path, oid, path) if oid else None
+    if diff is None:
+        raise domain.DomainError(404, "DIFF_NOT_FOUND", f"Не удалось получить diff {path} в коммите {sha}")
+    return diff
+
+
+@router.get("/projects/{key}/git/commits/{sha}", summary="Карточка коммита: Git (автор, сообщение, файлы), требования, проверки")
+def git_commit_detail(key: str, sha: str, session: Session = Depends(get_session)):
+    from pth import gitops
+    domain.get_project(session, key)
+    repo = _repo_or_409(session, key)
+    oid = gitops.resolve_commit(repo.path, sha)
+    info = gitops.show_commit(repo.path, oid) if oid else None
+    if info is None:
+        raise domain.DomainError(404, "COMMIT_NOT_FOUND", f"Коммит {sha} не найден в репозитории")
+    a = domain.analyze(session, key)
+    title = lambda d: a.revisions[next(u for u, x in a.by_uid.items() if x.display_id == d)].title  # noqa: E731
+    try:
+        runs = commit_runs(key, oid, session=session)
+    except domain.DomainError:
+        runs = {"registered": None, "implements": [], "runs": []}
+    mention_ids = _mentions(a, key, f"{info['subject']}\n{info['body']}")
+    head = domain.current_head(session, key)
+    return {**info, "is_head": head == oid, "registered": runs["registered"],
+            "implements": [{"id": i, "title": title(i)} for i in runs["implements"]],
+            "mentions": [{"id": i, "title": title(i)} for i in mention_ids if i not in runs["implements"]],
+            "runs": runs["runs"]}
+
+
+@router.get("/projects/{key}/runs", summary="Наборы запусков: все тесты, прогнанные на одном коммите, одной строкой")
+def run_sets(response: Response, key: str, offset: int = Query(default=0, ge=0), limit: int = Query(default=20, ge=1, le=200),
+             session: Session = Depends(get_session)):
+    """Набор — это проверка коммита: тесты и проверки CI, выполненные на нём. По каждому тесту берётся последний запуск."""
+    from pth.models import Evidence, EvidenceAttachment
+    from sqlalchemy import func
+    domain.get_project(session, key)
+    a = domain.analyze(session, key)
+    rows = domain.latest_per_commit(session.scalars(
+        select(Evidence).where(Evidence.project_key == key).order_by(Evidence.created_at.desc())).all())
+    attached = dict(session.execute(select(EvidenceAttachment.evidence_uid, func.count()).where(
+        EvidenceAttachment.project_key == key).group_by(EvidenceAttachment.evidence_uid)).all())
+    sets: dict[str, dict] = {}
+    for e in rows:
+        commit = e.commit_oid or e.commit_sha or ""
+        group = sets.setdefault(commit, {"commit": commit or None, "ran_at": e.created_at.isoformat(), "results": []})
+        test = a.by_uid.get(e.test_uid)
+        kind = a.revisions[e.test_uid].attributes.get("kind") if test else None
+        group["results"].append({"test": test.display_id if test else None,
+                                 "title": a.revisions[e.test_uid].title if test else None,
+                                 "kind": kind if kind in domain.CHECK_KINDS else "unit", "result": e.result,
+                                 "ran_at": e.created_at.isoformat(), "trust": e.trust_level, "verified": e.verified,
+                                 "issuer": e.issuer, "attachments": attached.get(e.uid, 0)})
+    out = []
+    for group in sets.values():
+        res = group["results"]
+        group.update(total=len(res), passed=sum(r["result"] == "pass" for r in res), failed=sum(r["result"] == "fail" for r in res),
+                     other=sum(r["result"] not in ("pass", "fail") for r in res),
+                     kinds=sorted({r["kind"] for r in res}, key=list(domain.CHECK_KINDS).index),
+                     attachments=sum(r["attachments"] for r in res),
+                     sources=sorted({r["trust"] for r in res}))
+        out.append(group)
+    return _page(response, out, offset, limit)
+
+
+@router.get("/projects/{key}/commits/{sha}/runs",
+            summary="Что произошло на коммите: запуски тестов (хук или вручную) и реализуемые требования")
+def commit_runs(key: str, sha: str, session: Session = Depends(get_session)):
+    """Работает и для коммитов без карточки COMMIT: хук пишет свидетельство по SHA, даже если коммит не зарегистрирован."""
+    from pth.models import Evidence, EvidenceAttachment
+    domain.get_project(session, key)
+    if len(sha) < 7:
+        raise domain.DomainError(422, "SHA_TOO_SHORT", "Нужно минимум 7 символов SHA")
+    a = domain.analyze(session, key)
+    names = {u: x for u, x in a.by_uid.items()}
+    rows = session.scalars(select(Evidence).where(Evidence.project_key == key).order_by(Evidence.created_at.desc())).all()
+    runs = []
+    full = None
+    for e in domain.latest_per_commit(rows):
+        c = e.commit_oid or e.commit_sha or ""
+        if c and c.startswith(sha):
+            full = full or c
+            test = names.get(e.test_uid)
+            files = [{"uid": x.uid, "name": x.name, "size": x.size, "content_type": x.content_type}
+                     for x in session.scalars(select(EvidenceAttachment).where(EvidenceAttachment.evidence_uid == e.uid)
+                                              .order_by(EvidenceAttachment.created_at))]
+            runs.append({"files": files, "test": test.display_id if test else None,
+                         "title": a.revisions[e.test_uid].title if test else None, "result": e.result,
+                         "ran_at": e.created_at.isoformat(), "trust": e.trust_level, "verified": e.verified,
+                         "issuer": e.issuer})
+    registered = next((x for x in a.by_uid.values() if x.type == "COMMIT" and (x.external_key or "").startswith(sha)), None)
+    git_title = None
+    if registered is None and not runs:
+        from pth import gitops
+        from pth.models import ProjectRepo
+        repo = session.get(ProjectRepo, key)
+        oid = gitops.resolve_commit(repo.path, sha) if repo else None
+        if oid:
+            full = oid
+            git_title = gitops._run(repo.path, "log", "-1", "--format=%s", oid).stdout.strip()
+    if registered is None and not runs and full is None:
+        raise domain.DomainError(404, "COMMIT_NOT_FOUND", f"Коммит {sha} не найден ни среди зарегистрированных, ни среди запусков")
+    implements = sorted(a.by_uid[r.target_uid].display_id for r in a.relations
+                        if registered and r.type == "implements" and r.source_uid == registered.uid)
+    return {"sha": (registered.external_key if registered else full), "registered": registered.display_id if registered else None,
+            "title": a.revisions[registered.uid].title if registered else git_title,
+            "implements": implements, "runs": runs}
+
+
+@router.get("/projects/{key}/artifacts/{display_id}/origins", summary="Первоисточник: из каких строк каких документов получено требование")
+def artifact_origins(key: str, display_id: str, session: Session = Depends(get_session)):
+    """Читает привязку строк, сохранённую при импорте или при разборе текста моделью. Созданный вручную элемент: пустой список."""
+    domain.get_artifact(session, key, display_id)
+    out = []
+    sessions = session.scalars(select(ImportSession).where(ImportSession.project_key == key)
+                               .order_by(ImportSession.created_at.desc()))
+    for rec in sessions:
+        lines = rec.source_text.splitlines()
+        for raw in importer.fragments_for(session, key, rec):
+            frag = importer.normalize_fragment(raw)
+            if frag.get("display_id") == display_id and 1 <= frag["line"] <= len(lines):
+                shown = frag.get("quote") or "\n".join(l.strip() for l in lines[frag["line"] - 1:frag["end_line"]])
+                out.append({"import_uid": rec.uid, "source_name": rec.source_name, "imported_at": rec.created_at.isoformat(),
+                            "line": frag["line"], "end_line": frag["end_line"], "via": frag["via"],
+                            "verified": frag.get("verified"), "text": shown[:600]})
+    return out
+
+
+@router.get("/projects/{key}/sources/compare", summary="Сравнить две версии источника построчно и показать затронутые требования")
+def source_compare(key: str, a: str, b: str, session: Session = Depends(get_session)):
+    import difflib
+    recs = {}
+    for uid in (a, b):
+        rec = session.scalar(select(ImportSession).where(ImportSession.project_key == key, ImportSession.uid == uid))
+        if rec is None:
+            raise domain.DomainError(404, "IMPORT_NOT_FOUND", f"Импорт {uid} не найден")
+        recs[uid] = rec
+    ra, rb = recs[a], recs[b]
+
+    def ids_by_line(rec) -> dict[int, list[str]]:
+        out: dict[int, list[str]] = {}
+        for raw in importer.fragments_for(session, key, rec):
+            f = importer.normalize_fragment(raw)
+            for n in range(f["line"], f["end_line"] + 1):
+                out.setdefault(n, []).append(f["display_id"])
+        return out
+    ids_a, ids_b = ids_by_line(ra), ids_by_line(rb)
+    la, lb = ra.source_text.splitlines(), rb.source_text.splitlines()
+    matcher = difflib.SequenceMatcher(a=la, b=lb, autojunk=False)
+    hunks, removed_ids, added_ids = [], set(), set()
+    added = removed = 0
+    for group in matcher.get_grouped_opcodes(3):
+        lines = []
+        for tag, i1, i2, j1, j2 in group:
+            if tag == "equal":
+                lines += [{"type": "ctx", "old": i + 1, "new": j + 1, "text": la[i], "ids": ids_b.get(j + 1, [])}
+                          for i, j in zip(range(i1, i2), range(j1, j2))]
+                continue
+            for i in range(i1, i2):
+                removed += 1
+                removed_ids.update(ids_a.get(i + 1, []))
+                lines.append({"type": "del", "old": i + 1, "new": None, "text": la[i], "ids": ids_a.get(i + 1, [])})
+            for j in range(j1, j2):
+                added += 1
+                added_ids.update(ids_b.get(j + 1, []))
+                lines.append({"type": "add", "old": None, "new": j + 1, "text": lb[j], "ids": ids_b.get(j + 1, [])})
+        first, last = group[0], group[-1]
+        hunks.append({"header": f"@@ -{first[1] + 1},{last[2] - first[1]} +{first[3] + 1},{last[4] - first[3]} @@", "lines": lines})
+    meta = lambda r: {"uid": r.uid, "source_name": r.source_name, "created_at": r.created_at.isoformat()}  # noqa: E731
+    return {"a": meta(ra), "b": meta(rb), "identical": ra.source_sha256 == rb.source_sha256, "hunks": hunks,
+            "added_lines": added, "removed_lines": removed,
+            "requirements": {"changed": sorted(removed_ids & added_ids), "removed": sorted(removed_ids - added_ids),
+                             "added": sorted(added_ids - removed_ids)}}
+
+
+@router.get("/projects/{key}/sources/{uid}", summary="Исходный текст импорта с привязкой формулировок к требованиям")
 def source_view(key: str, uid: str, session: Session = Depends(get_session)):
     record = session.scalar(select(ImportSession).where(ImportSession.project_key == key, ImportSession.uid == uid))
     if record is None:
         raise domain.DomainError(404, "IMPORT_NOT_FOUND", f"Импорт {uid} не найден")
-    fragments = record.report.get("fragments", [])
+    fragments = [importer.normalize_fragment(f) for f in importer.fragments_for(session, key, record)]
     lines = record.source_text.splitlines()
-    by_line = {f["line"]: f["display_id"] for f in fragments}
-    return {"source_name": record.source_name, "source_sha256": record.source_sha256,
+    by_line: dict[int, str] = {}
+    for f in fragments:
+        for n in range(f["line"], f["end_line"] + 1):
+            by_line.setdefault(n, f["display_id"])
+    return {"source_name": record.source_name, "source_sha256": record.source_sha256, "created_at": record.created_at.isoformat(),
             "lines": [{"no": i + 1, "text": text, "display_id": by_line.get(i + 1)} for i, text in enumerate(lines)],
-            "fragments": len(fragments)}
+            "fragments": len(fragments),
+            "marks": [{k: f.get(k) for k in ("display_id", "line", "end_line", "via", "cols", "quote", "verified", "start_col", "end_col")}
+                      for f in fragments]}
 
 
 @router.post("/projects/{key}/evidence", status_code=201, summary="Записать результат проверки (неизменяемо)")
@@ -643,12 +1173,84 @@ def list_commits(key: str, response: Response = None, offset: int = Query(defaul
     return out
 
 
+@router.post("/projects/{key}/evidence/{uid}/attachments", status_code=201,
+             summary="Приложить файл к запуску (лог, отчёт нагрузочного теста, Allure-архив): тело запроса — содержимое файла")
+async def add_attachment(key: str, uid: str, request: Request, name: str, session: Session = Depends(get_session)):
+    data = await request.body()
+    out = domain.add_attachment(session, key, uid, name, request.headers.get("content-type", ""), data)
+    domain.audit(session, key, request.state.actor, "evidence.attach", uid, {"name": out["name"], "size": out["size"]})
+    session.commit()
+    return out
+
+
+@router.get("/projects/{key}/attachments", summary="Файлы запусков: список с хешами, без содержимого")
+def list_attachments(key: str, evidence: str | None = None, session: Session = Depends(get_session)):
+    from pth.models import EvidenceAttachment
+    domain.get_project(session, key)
+    q = select(EvidenceAttachment).where(EvidenceAttachment.project_key == key).order_by(EvidenceAttachment.created_at.desc())
+    if evidence:
+        q = q.where(EvidenceAttachment.evidence_uid == evidence)
+    return [domain.attachment_out(a) for a in session.scalars(q)]
+
+
+PREVIEW_LIMIT = 200 * 1024
+
+
+@router.get("/projects/{key}/attachments/{uid}/preview", summary="Просмотр файла запуска: текст и сводка, без скачивания")
+def preview_attachment(key: str, uid: str, session: Session = Depends(get_session)):
+    from pth.models import EvidenceAttachment
+    att = session.get(EvidenceAttachment, uid)
+    if att is None or att.project_key != key:
+        raise domain.DomainError(404, "ATTACHMENT_NOT_FOUND", f"Файл {uid} не найден")
+    name = att.name.lower()
+    summary = None
+    if name.endswith(".zip"):
+        s = domain.allure_summary(att.data)
+        summary = {"type": "allure", **s} if s else None
+    else:
+        s = domain.sarif_summary(att.data)
+        if s:
+            summary = {"type": "sarif", **s, "top_rules": [list(x) for x in s["top_rules"]]}
+        else:
+            g = domain.quality_gate_summary(att.data)
+            summary = {"type": "quality_gate", **g} if g else None
+    text, truncated = None, False
+    if not name.endswith((".zip", ".png", ".jpg", ".jpeg", ".gif", ".pdf", ".gz", ".tar", ".bin")):
+        raw = att.data[:PREVIEW_LIMIT]
+        if b"\x00" not in raw:
+            text = raw.decode("utf-8", errors="replace")
+            truncated = len(att.data) > PREVIEW_LIMIT
+            if name.endswith((".json", ".sarif")):
+                try:
+                    import json
+                    if not truncated:
+                        text = json.dumps(json.loads(att.data), ensure_ascii=False, indent=2)
+                except ValueError:
+                    pass
+    return {**domain.attachment_out(att), "summary": summary, "text": text, "truncated": truncated}
+
+
+@router.get("/projects/{key}/attachments/{uid}", summary="Скачать файл запуска")
+def download_attachment(key: str, uid: str, session: Session = Depends(get_session)):
+    from pth.models import EvidenceAttachment
+    att = session.get(EvidenceAttachment, uid)
+    if att is None or att.project_key != key:
+        raise domain.DomainError(404, "ATTACHMENT_NOT_FOUND", f"Файл {uid} не найден")
+    # attachment + nosniff: загруженный HTML не исполняется в origin приложения
+    return Response(content=att.data, media_type=att.content_type, headers={
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(att.name)}", "X-Content-Type-Options": "nosniff"})
+
+
 @router.get("/projects/{key}/evidence", summary="Записанные свидетельства проверок")
 def list_evidence(key: str, response: Response = None, offset: int = Query(default=0, ge=0),
-                  limit: int = Query(default=20, ge=1, le=500), session: Session = Depends(get_session)):
+                  limit: int = Query(default=20, ge=1, le=500), all_runs: bool = False,
+                  session: Session = Depends(get_session)):
+    """По умолчанию без повторов на одном коммите; all_runs=true — полный журнал."""
     from pth.models import Evidence
     domain.get_project(session, key)
     rows = session.scalars(select(Evidence).where(Evidence.project_key == key).order_by(Evidence.created_at.desc())).all()
+    if not all_runs:
+        rows = domain.latest_per_commit(rows)
     tests = {a.uid: a.display_id for a in session.scalars(select(Artifact).where(Artifact.project_key == key))}
     out = [{"uid": e.uid, "test": tests.get(e.test_uid), "result": e.result, "commit_sha": e.commit_sha,
             "commit_oid": e.commit_oid, "verified": e.verified, "trust_level": e.trust_level, "issuer": e.issuer,
@@ -715,13 +1317,13 @@ def status(key: str, session: Session = Depends(get_session)):
 # --- анализ --------------------------------------------------------------------
 
 @router.get("/projects/{key}/lost", response_model=LostOut,
-            summary="Потерянные элементы: требования без кода и US без ФТ/ADR")
+            summary="Потерянные элементы (reason=no_reflection по умолчанию) или не реализованные (reason=no_code_link)")
 def lost(
     response: Response,
     key: str,
     type: str | None = Query(default=None),
     priority: str | None = Query(default=None, pattern=r"^P[0-3]$"),
-    reason: str | None = Query(default=None, pattern="^(no_code_link|no_reflection)$"),
+    reason: str = Query(default="no_reflection", pattern="^(no_code_link|no_reflection)$"),
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=20, ge=1, le=500),
     session: Session = Depends(get_session),
@@ -736,7 +1338,7 @@ def lost(
 def graph(
     key: str,
     focus: str,
-    depth: int = Query(default=2, ge=1, le=3),
+    depth: int = Query(default=2, ge=1, le=6),
     direction: Direction = "both",
     limit: int = Query(default=GRAPH_LIMIT_MAX, ge=1, le=GRAPH_LIMIT_MAX),
     relation_types: str | None = Query(default=None, description="Через запятую: refines,motivates,implements"),

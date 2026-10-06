@@ -3,6 +3,7 @@ import type { ArtifactType, LostItem } from '@/entities/pth/types';
 import { REASON_LABEL } from '@/entities/pth/types';
 import { Button, EmptyState } from '@/shared/ui';
 import { DataTable } from '@/features/screens/common';
+import { CopyId } from '@/shared/ui/CopyId';
 
 export const TYPE_FILTERS: ('ALL' | ArtifactType)[] = ['ALL', 'US', 'FR', 'NFR', 'AC'];
 export const PRIORITY_FILTERS = ['ALL', 'P0', 'P1', 'P2', 'P3'] as const;
@@ -15,8 +16,9 @@ export interface LostRequirementsListProps {
   onTypeChange: (type: 'ALL' | ArtifactType) => void;
   priorityFilter?: PriorityFilter;
   onPriorityChange?: (priority: PriorityFilter) => void;
-  reasonFilter?: 'all' | 'no_code_link' | 'no_reflection';
-  onReasonChange?: (reason: 'all' | 'no_code_link' | 'no_reflection') => void;
+  /** Вид: потерянные (нет отражения) или не реализованные (нет связи с кодом). */
+  reasonFilter?: 'no_code_link' | 'no_reflection';
+  onReasonChange?: (reason: 'no_code_link' | 'no_reflection') => void;
   /** Открыть элемент на графе. */
   onOpen: (displayId: string) => void;
   /** Нижняя полоса списка, обычно пагинация. */
@@ -31,7 +33,7 @@ export function LostRequirementsList({
   onTypeChange,
   priorityFilter = 'ALL',
   onPriorityChange,
-  reasonFilter = 'all',
+  reasonFilter = 'no_reflection',
   onReasonChange,
   onOpen,
   footer,
@@ -53,11 +55,10 @@ export function LostRequirementsList({
           ))}
         </div>
         {onReasonChange && (
-          <div role="group" aria-label="Причина" className="flex flex-wrap gap-2">
+          <div role="group" aria-label="Вид" className="flex flex-wrap gap-2">
             {([
-              ['all', 'Все причины'],
-              ['no_code_link', 'Нет связи с кодом'],
-              ['no_reflection', 'Нет отражения в ФТ или ADR'],
+              ['no_reflection', 'Потерянные: нет отражения в ФТ или ADR'],
+              ['no_code_link', 'Не реализованы: нет связи с кодом'],
             ] as const).map(([value, label]) => (
               <Button key={value} size="sm" variant={value === reasonFilter ? 'primary' : 'secondary'}
                 aria-pressed={value === reasonFilter} onClick={() => onReasonChange(value)}>
@@ -87,8 +88,17 @@ export function LostRequirementsList({
         </span>
       </div>
 
+      <p className="text-meta text-text-muted">
+        {reasonFilter === 'no_reflection'
+          ? 'Потерянные — user story без ФТ или ADR. Не реализованные — требования без связи implements с коммитом; это отдельный вид, не потеря.'
+          : 'Не реализованные — FR, NFR или AC без связи implements. Потерянными они не считаются.'}
+      </p>
+
       {items.length === 0 ? (
-        <EmptyState title="Потерянных элементов нет" description="Все требования связаны с кодом, а user story отражены в ФТ или ADR." />
+        <EmptyState
+          title={reasonFilter === 'no_reflection' ? 'Потерянных элементов нет' : 'Нереализованных элементов нет'}
+          description={reasonFilter === 'no_reflection' ? 'Каждая user story отражена в ФТ или ADR.' : 'Все требования связаны с коммитом.'}
+        />
       ) : (
         <DataTable
           caption={`Потерянные элементы: ${items.length}`}
@@ -96,14 +106,15 @@ export function LostRequirementsList({
           columns="7.5rem minmax(0,1fr) 5.5rem minmax(0,1fr) minmax(0,1.2fr)"
           headers={['ID', 'Название', 'Приоритет', 'Причина', 'Что сделать']}
           rows={items.map((item) => [
-            <button
-              key="id"
-              type="button"
-              onClick={() => onOpen(item.display_id)}
-              className="font-mono text-meta font-medium text-accent-text underline-offset-2 hover:underline"
-            >
-              {item.display_id}
-            </button>,
+            <CopyId key="id" value={item.display_id}>
+              <button
+                type="button"
+                onClick={() => onOpen(item.display_id)}
+                className="font-mono text-meta font-medium text-accent-text underline-offset-2 hover:underline"
+              >
+                {item.display_id}
+              </button>
+            </CopyId>,
             item.title,
             <span key="p" className={item.priority === 'P0' ? 'font-semibold text-danger-text' : 'text-text-muted'}>
               {item.priority ?? '—'}

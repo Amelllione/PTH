@@ -38,7 +38,46 @@ def _m4_git_trust(engine: Engine) -> None:
                 conn.execute(text(f"ALTER TABLE evidence ADD COLUMN {name} {ddl}"))
 
 
-MIGRATIONS = [(1, _m1_baseline), (2, _m2_evidence_baselines), (3, _m3_audit_review), (4, _m4_git_trust)]
+def _m5_impact_rules(engine: Engine) -> None:
+    """Свои правила влияния (§6.4): таблица impact_rules; встроенные правила в коде, не в базе."""
+    import pth.models  # noqa: F401 — регистрирует все таблицы в Base.metadata
+    Base.metadata.create_all(engine)
+
+
+def _m6_impact_rule_text(engine: Engine) -> None:
+    """Название и описание своих правил влияния."""
+    Base.metadata.create_all(engine)
+    columns = {"title": "VARCHAR(120) NOT NULL DEFAULT ''", "description": "VARCHAR(500) NOT NULL DEFAULT ''"}
+    with engine.begin() as conn:
+        existing = {row[1] for row in conn.execute(text("PRAGMA table_info(impact_rules)"))}
+        for name, ddl in columns.items():
+            if name not in existing:
+                conn.execute(text(f"ALTER TABLE impact_rules ADD COLUMN {name} {ddl}"))
+
+
+def _m7_impact_rule_focus(engine: Engine) -> None:
+    """Тип изменяемого элемента — вторая сторона правила: «что изменилось» → «что проверяем»."""
+    Base.metadata.create_all(engine)
+    with engine.begin() as conn:
+        existing = {row[1] for row in conn.execute(text("PRAGMA table_info(impact_rules)"))}
+        if "focus_type" not in existing:
+            conn.execute(text("ALTER TABLE impact_rules ADD COLUMN focus_type VARCHAR(10)"))
+
+
+def _m8_attachments(engine: Engine) -> None:
+    """Файлы к запускам тестов: логи, нагрузочные отчёты, Allure."""
+    import pth.models  # noqa: F401
+    Base.metadata.create_all(engine)
+
+
+def _m9_releases(engine: Engine) -> None:
+    """Релизы и их состав."""
+    import pth.models  # noqa: F401
+    Base.metadata.create_all(engine)
+
+
+MIGRATIONS = [(1, _m1_baseline), (2, _m2_evidence_baselines), (3, _m3_audit_review), (4, _m4_git_trust),
+              (5, _m5_impact_rules), (6, _m6_impact_rule_text), (7, _m7_impact_rule_focus), (8, _m8_attachments), (9, _m9_releases)]
 
 
 def current_version(engine: Engine) -> int:

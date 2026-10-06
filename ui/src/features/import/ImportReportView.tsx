@@ -1,16 +1,19 @@
 import type { ImportReport } from '@/entities/pth/types';
 import { Badge, InlineAlert } from '@/shared/ui';
+import { DataTable, StatusText, usePaged } from '@/features/screens/common';
 
 export interface ImportReportViewProps {
   report: ImportReport;
+  /** Переход к карточке элемента из списка изменений. Без него ID — текст. */
+  onOpenArtifact?: (displayId: string) => void;
 }
 
 /** Итог импорта: счётчики, изменения по каждому ID и нераспознанные строки. Текст — не только цвет. */
-export function ImportReportView({ report }: ImportReportViewProps) {
+export function ImportReportView({ report, onOpenArtifact }: ImportReportViewProps) {
   return (
     <section aria-label="Отчёт импорта" className="flex flex-col gap-3">
       {report.changeset_uid ? (
-        <InlineAlert tone="info" message="Черновик ChangeSet создан. Данные не изменены: примените его в разделе «Черновики»." />
+        <InlineAlert tone="info" message="Черновик ChangeSet создан. Данные не изменены: примените его в разделе «Изменения»." />
       ) : report.dry_run ? (
         <InlineAlert tone="info" message="Предпросмотр: данные не изменены. Нажмите «Применить сразу», чтобы записать." />
       ) : (
@@ -25,27 +28,7 @@ export function ImportReportView({ report }: ImportReportViewProps) {
       </div>
       <p className="font-mono text-meta text-text-muted">sha256 {report.source_sha256.slice(0, 16)}…</p>
 
-      {report.changes.length > 0 && (
-        <div className="overflow-x-auto rounded-card border border-border bg-surface">
-          <table className="w-full min-w-[320px] text-left text-ui">
-            <caption className="sr-only">Изменения по элементам</caption>
-            <thead className="bg-surface-muted text-meta text-text-muted">
-              <tr>
-                <th scope="col" className="px-3 py-2 font-medium">ID</th>
-                <th scope="col" className="px-3 py-2 font-medium">Действие</th>
-              </tr>
-            </thead>
-            <tbody>
-              {report.changes.map((c) => (
-                <tr key={c.display_id} className="border-t border-border">
-                  <td className="px-3 py-2 font-mono text-meta">{c.display_id}</td>
-                  <td className="px-3 py-2">{c.action === 'created' ? 'создан' : 'новая ревизия'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {report.changes.length > 0 && <ChangesTable changes={report.changes} onOpenArtifact={onOpenArtifact} />}
 
       {report.unparsed.length > 0 && (
         <div className="flex flex-col gap-1">
@@ -58,5 +41,19 @@ export function ImportReportView({ report }: ImportReportViewProps) {
         </div>
       )}
     </section>
+  );
+}
+
+function ChangesTable({ changes, onOpenArtifact }: { changes: ImportReport['changes']; onOpenArtifact?: (displayId: string) => void }) {
+  const paged = usePaged(changes, 20, 'Страницы элементов');
+  return (
+    <DataTable caption="Элементы, полученные из источника" columns="minmax(0,1fr) 12rem" headers={['Элемент', 'Действие']}
+      onRowSelect={onOpenArtifact ? (i) => onOpenArtifact(paged.rows[i].display_id) : undefined} footer={paged.pager}
+      rows={paged.rows.map((c) => [
+        onOpenArtifact
+          ? <span key="i" className="font-mono text-meta font-medium text-accent-text underline underline-offset-2">{c.display_id}</span>
+          : <span key="i" className="font-mono text-meta">{c.display_id}</span>,
+        <StatusText key="a" label={c.action === 'created' ? 'создан' : 'новая ревизия'} tone={c.action === 'created' ? 'ok' : 'warn'} />,
+      ])} />
   );
 }

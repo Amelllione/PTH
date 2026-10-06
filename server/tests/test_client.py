@@ -52,7 +52,7 @@ def test_errors_are_raised_with_codes(api):
 
 def test_lost_and_graph_helpers(api):
     api.import_spec("PTH", "spec.md", SNIPPET, mode="apply")
-    assert api.lost("PTH", type_="FR")["total"] == 1
+    assert api.lost("PTH", type_="FR", reason="no_code_link")["total"] == 1
     graph = api.graph("PTH", "PTH-FR-001", depth=1)
     assert graph["focus"] == "PTH-FR-001" and len(graph["nodes"]) >= 1
 

@@ -25,7 +25,7 @@ function FieldShell({ id, label, hint, error, counter, hideLabel, children }: Fi
   return (
     <div className="flex flex-col gap-1.5">
       {/* Подсказка в строке подписи, а не под полем: так поле не сдвигает соседние кнопки. */}
-      <div className="flex min-w-0 items-baseline justify-between gap-2">
+      <div className="flex min-w-0 items-baseline gap-3">
         <label htmlFor={id} className={cn('shrink-0 text-ui font-medium text-text', hideLabel && 'sr-only')}>
           {label}
         </label>
@@ -34,7 +34,7 @@ function FieldShell({ id, label, hint, error, counter, hideLabel, children }: Fi
             {hint}
           </span>
         )}
-        {counter && <span className="shrink-0 text-meta text-text-muted">{counter}</span>}
+        {counter && <span className="ml-auto shrink-0 text-meta text-text-muted">{counter}</span>}
       </div>
       {children(describedBy || undefined, Boolean(error))}
       {error && (

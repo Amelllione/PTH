@@ -1,5 +1,20 @@
-import type { ReactNode } from 'react';
-import { EmptyState, ErrorState, SkeletonList } from '@/shared/ui';
+import { useState, type ReactNode } from 'react';
+import { EmptyState, ErrorState, Pager, SkeletonList } from '@/shared/ui';
+
+/** Постраничный показ готового списка: срез и пагинатор. Страница сбрасывается, если список стал короче. */
+export function usePaged<T>(items: T[], initialSize = 20, label = 'Страницы') {
+  const [page, setPage] = useState(0);
+  const [size, setSize] = useState(initialSize);
+  const last = Math.max(0, Math.ceil(items.length / size) - 1);
+  const current = Math.min(page, last);
+  return {
+    rows: items.slice(current * size, (current + 1) * size),
+    offset: current * size,
+    pager: items.length > Math.min(size, 20) ? (
+      <Pager page={current} pageSize={size} total={items.length} onPage={setPage} onPageSize={(s) => { setSize(s); setPage(0); }} label={label} />
+    ) : undefined,
+  };
+}
 
 /** Общая обёртка: загрузка, ошибка, пусто или содержимое. Ошибка API не скрывается. */
 export function Loaded<T>({
@@ -44,7 +59,18 @@ export function Section({ title, hint, children }: { title: string; hint?: strin
  * Журнал: строки без рамок и теней, разделитель — одна линия, заголовки в обычном регистре.
  * Колонки выравниваются сеткой; на узком экране журнал прокручивается по горизонтали.
  */
-export function DataTable({ caption, headers, rows, footer, columns }: { caption: string; headers: string[]; rows: ReactNode[][]; footer?: ReactNode; /** CSS-шаблон колонок, например «8rem 1fr 18rem». */ columns?: string }) {
+export function DataTable({
+  caption, headers, rows, footer, columns, onRowSelect, selectedIndex, rowClassName,
+}: {
+  caption: string; headers: string[]; rows: ReactNode[][]; footer?: ReactNode;
+  /** CSS-шаблон колонок, например «8rem 1fr 18rem». */
+  columns?: string;
+  /** Нажатие на строку (мышь, Enter, пробел). Строка становится доступной с клавиатуры. */
+  onRowSelect?: (index: number) => void;
+  selectedIndex?: number | null;
+  /** Дополнительный класс строки, например подсветка проблемных. */
+  rowClassName?: (index: number) => string | undefined;
+}) {
   const template = columns ?? headers.map(() => 'minmax(0, 1fr)').join(' ');
   return (
     <div className="overflow-x-auto rounded-card border border-border bg-surface">
@@ -57,7 +83,11 @@ export function DataTable({ caption, headers, rows, footer, columns }: { caption
             <div
               role="row"
               key={i}
-              className="grid items-center gap-x-4 border-b border-border px-4 py-2.5 last:border-b-0 hover:bg-surface-muted/60"
+              aria-selected={onRowSelect ? selectedIndex === i : undefined}
+              tabIndex={onRowSelect ? 0 : undefined}
+              onClick={onRowSelect ? () => onRowSelect(i) : undefined}
+              onKeyDown={onRowSelect ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onRowSelect(i); } } : undefined}
+              className={`grid items-center gap-x-4 border-b border-border px-4 py-2.5 last:border-b-0 hover:bg-surface-muted/60 ${onRowSelect ? 'cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent' : ''} ${selectedIndex === i ? 'bg-surface-muted' : ''} ${rowClassName?.(i) ?? ''}`}
               style={{ gridTemplateColumns: template }}
             >
               {cells.map((c, j) => <div role="cell" key={j} className="min-w-0 break-words tabular-nums">{c}</div>)}

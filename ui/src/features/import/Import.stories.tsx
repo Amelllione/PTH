@@ -1,20 +1,14 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { demoImportReport, demoJournal } from '@/features/pth/fixtures';
-import { ImportForm } from './ImportForm';
 import { ImportJournal } from './ImportJournal';
 import { ImportReportView } from './ImportReportView';
 
-const formMeta = {
-  title: 'PTH/Импорт/ImportForm',
-  component: ImportForm,
-  args: { onSubmit: () => {} },
-} satisfies Meta<typeof ImportForm>;
-export default formMeta;
-type FormStory = StoryObj<typeof formMeta>;
-
-export const Empty: FormStory = {};
-export const Busy: FormStory = { args: { busy: true } };
-export const Failed: FormStory = { args: { error: 'Сервер вернул 422: нет проекта' } };
+const meta = {
+  title: 'PTH/Импорт/Отчёт и журнал',
+  component: ImportReportView,
+  args: { report: demoImportReport },
+} satisfies Meta<typeof ImportReportView>;
+export default meta;
 
 export const ReportPreview: StoryObj<typeof ImportReportView> = {
   render: () => <ImportReportView report={demoImportReport} />,

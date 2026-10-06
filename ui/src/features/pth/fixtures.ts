@@ -34,12 +34,12 @@ export const lostItems: LostItem[] = [
 export const demoGraph: GraphData = {
   focus: 'PTH-US-001',
   nodes: [
-    { display_id: 'PTH-US-001', type: 'US', title: 'Трассировка требований', lost: false, reasons: [] },
-    { display_id: 'PTH-FR-001', type: 'FR', title: 'Реестр сущностей с ID', lost: false, reasons: [] },
-    { display_id: 'PTH-FR-002', type: 'FR', title: 'Граф связей с фильтрами', lost: true, reasons: ['no_code_link'] },
-    { display_id: 'PTH-ADR-001', type: 'ADR', title: 'Сервис как источник истины', lost: false, reasons: [] },
-    { display_id: 'PTH-COMMIT-001', type: 'COMMIT', title: 'feat: реестр сущностей', lost: false, reasons: [] },
-    { display_id: 'PTH-US-002', type: 'US', title: 'Импорт принятой спецификации', lost: true, reasons: ['no_reflection'] },
+    { display_id: 'PTH-US-001', type: 'US', title: 'Трассировка требований', lost: false, not_implemented: false, reasons: [] },
+    { display_id: 'PTH-FR-001', type: 'FR', title: 'Реестр сущностей с ID', lost: false, not_implemented: false, reasons: [] },
+    { display_id: 'PTH-FR-002', type: 'FR', title: 'Граф связей с фильтрами', lost: true, not_implemented: true, reasons: ['no_code_link'] },
+    { display_id: 'PTH-ADR-001', type: 'ADR', title: 'Сервис как источник истины', lost: false, not_implemented: false, reasons: [] },
+    { display_id: 'PTH-COMMIT-001', type: 'COMMIT', title: 'feat: реестр сущностей', lost: false, not_implemented: false, reasons: [] },
+    { display_id: 'PTH-US-002', type: 'US', title: 'Импорт принятой спецификации', lost: true, not_implemented: false, reasons: ['no_reflection'] },
   ],
   edges: [
     { type: 'refines', source: 'PTH-FR-001', target: 'PTH-US-001' },

@@ -4,8 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-ArtifactType = Literal["US", "FR", "NFR", "AC", "ADR", "COMMIT", "TEST"]
-RelationType = Literal["refines", "motivates", "implements", "verifies"]
+ArtifactType = Literal["US", "FR", "NFR", "AC", "ADR", "COMMIT", "TEST", "DIAGRAM"]
+RelationType = Literal["refines", "motivates", "implements", "verifies", "illustrates"]
 LostReason = Literal["no_code_link", "no_reflection"]
 Direction = Literal["out", "in", "both"]
 
@@ -130,9 +130,16 @@ class ExtractionJobOut(BaseModel):
     finished_at: datetime | None
 
 
+class ProposalSource(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    text: str = Field(min_length=1)
+
+
 class ProposalsToChangeSetIn(BaseModel):
     title: str = Field(min_length=1, max_length=300)
     proposals: list[Proposal] = Field(min_length=1, max_length=500)
+    # Текст, из которого модель выделила предложения: по нему сохраняется источник с подсветкой цитат
+    source: ProposalSource | None = None
 
 
 class ChangeSetIn(BaseModel):
@@ -191,6 +198,8 @@ class GraphNode(BaseModel):
     type: ArtifactType
     title: str
     lost: bool
+    not_implemented: bool = False
+    level: int = 0  # расстояние от центра графа в связях
     reasons: list[LostReason]
 
 
@@ -205,3 +214,86 @@ class GraphOut(BaseModel):
     nodes: list[GraphNode]
     edges: list[GraphEdge]
     truncated: bool
+
+
+ImpactType = Literal["US", "FR", "NFR", "AC", "ADR", "TEST", "COMMIT", "DIAGRAM"]
+
+
+class ImpactRuleIn(BaseModel):
+    code: str = Field(pattern=r"^[A-Z][A-Z0-9-]{2,39}$")
+    title: str = Field(min_length=3, max_length=120)
+    description: str = Field(default="", max_length=500)
+    relation_type: str = Field(pattern=r"^(refines|motivates|implements|verifies|illustrates)$")
+    direction: str = Field(pattern=r"^(in|out)$")
+    focus_types: list[ImpactType] = Field(default_factory=list, max_length=7)     # что изменилось; пусто — любой
+    neighbor_types: list[ImpactType] = Field(default_factory=list, max_length=7)  # что проверяем; пусто — любой
+    certainty: str = Field(pattern=r"^(explicit|candidate)$")
+    action: str = Field(min_length=3, max_length=200)
+
+
+class ImpactRulePatch(BaseModel):
+    enabled: bool
+
+
+class CommitLinkIn(BaseModel):
+    implements: list[str] = Field(min_length=1, max_length=50)
+
+
+class ReleaseIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=1000)
+
+
+class ReleaseItemsIn(BaseModel):
+    display_ids: list[str] = Field(min_length=1, max_length=200)
+    with_related: bool = True  # вместе с уточняющими ФТ, НФТ и AC
+
+
+class ReleaseReasonIn(BaseModel):
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class ReleaseDoIn(BaseModel):
+    tag: str = Field(min_length=1, max_length=200)
+    reason: str = Field(default="", max_length=1000)
+
+
+class ReleaseMoveIn(BaseModel):
+    display_id: str
+    from_release: str | None = None
+    to_release: str | None = None
+    with_related: bool = True
+
+
+class ImportPreviewIn(BaseModel):
+    source_name: str = Field(min_length=1, max_length=200)
+    text: str = Field(min_length=1)
+
+
+class DraftItemIn(BaseModel):
+    ref: str = Field(min_length=1, max_length=80, description="Имя элемента внутри черновика: на него ссылаются связи")
+    type: Literal["US", "FR", "NFR", "AC"]
+    title: str = Field(min_length=1, max_length=300)
+    text: str = ""
+    priority: Literal["P0", "P1", "P2", "P3"] | None = None
+    display_id: str | None = Field(default=None, description="Существующий элемент — новая ревизия; свободный ID — создание с ним")
+    external_key: str | None = None
+    number: int | None = None
+    line: int | None = Field(default=None, description="Строка таблицы источника (импорт таблиц)")
+    cols: list[int] = Field(default_factory=list)
+    quote: str | None = Field(default=None, description="Цитата из источника, на которой основан элемент (выделение моделью)")
+    quote_verified: bool | None = None
+    model: str | None = None
+
+
+class DraftRelationIn(BaseModel):
+    type: RelationType
+    source: str = Field(description="ref элемента черновика или display_id существующего")
+    target: str
+
+
+class DraftIn(BaseModel):
+    title: str = Field(min_length=1, max_length=300)
+    source: ProposalSource | None = None
+    items: list[DraftItemIn] = Field(min_length=1, max_length=1000)
+    relations: list[DraftRelationIn] = Field(default_factory=list, max_length=3000)

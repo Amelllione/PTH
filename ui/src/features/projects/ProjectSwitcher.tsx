@@ -12,13 +12,13 @@ export interface ProjectSwitcherProps {
 export function ProjectSwitcher({ projects, value, onChange, onCreate }: ProjectSwitcherProps) {
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex items-end gap-2">
+      <div className="flex flex-col gap-2">
         <label className="flex flex-col gap-1 text-meta text-text-muted">
           Проект
           <select
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            className="h-9 min-w-48 rounded-control border border-control-border bg-surface px-2 text-ui text-text"
+            className="h-9 w-full rounded-control border border-control-border bg-surface px-2 text-ui text-text"
           >
             {projects.length === 0 && <option value={value}>{value} (ещё не создан)</option>}
             {projects.map((p) => (
@@ -31,7 +31,7 @@ export function ProjectSwitcher({ projects, value, onChange, onCreate }: Project
             )}
           </select>
         </label>
-        <Button variant="secondary" onClick={onCreate}>Новый проект</Button>
+        <Button variant="secondary" size="sm" onClick={onCreate}>Новый проект</Button>
       </div>
     </div>
   );

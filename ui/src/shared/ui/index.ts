@@ -30,3 +30,4 @@ export type { TooltipProps } from './Tooltip';
 export type { TextFieldProps, TextareaFieldProps } from './TextField';
 export { Pager, PAGE_SIZES } from './Pager';
 export type { PagerProps } from './Pager';
+export { Markdown, baseComponents } from './Markdown';

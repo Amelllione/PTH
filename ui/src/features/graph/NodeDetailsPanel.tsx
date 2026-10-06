@@ -1,6 +1,8 @@
+import { RevisionHistory } from '@/features/screens/RevisionHistory';
 import type { ArtifactDetail, GraphEdge, LostReason, RevisionItem } from '@/entities/pth/types';
 import { REASON_LABEL } from '@/entities/pth/types';
 import { Badge, Button, EmptyState, ErrorState, InlineAlert, Skeleton } from '@/shared/ui';
+import { CopyId } from '@/shared/ui/CopyId';
 
 export interface NodeRelation {
   direction: 'out' | 'in';
@@ -49,7 +51,7 @@ export function NodeDetailsPanel({
       <header className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <Badge label={detail.type} tone="accent" />
-          <span className="font-mono text-meta text-text-muted">{detail.display_id}</span>
+          <CopyId value={detail.display_id} className="font-mono text-meta text-text-muted">{detail.display_id}</CopyId>
           <span className="text-meta text-text-muted">ревизия {detail.revision}</span>
         </div>
         <h2 id="node-title" className="text-section font-semibold text-text">
@@ -57,12 +59,8 @@ export function NodeDetailsPanel({
         </h2>
       </header>
 
-      {lostReasons.length > 0 && (
-        <InlineAlert
-          tone="warning"
-          message={`Потерян: ${lostReasons.map((r) => REASON_LABEL[r]).join('; ')}`}
-        />
-      )}
+      {lostReasons.includes('no_reflection') && <InlineAlert tone="warning" message={REASON_LABEL.no_reflection} />}
+      {lostReasons.includes('no_code_link') && <InlineAlert tone="info" message={REASON_LABEL.no_code_link} />}
       {detail.exemption_reason && (
         <InlineAlert tone="info" message={`Исключение из проверки: ${detail.exemption_reason}`} />
       )}
@@ -95,7 +93,7 @@ export function NodeDetailsPanel({
                 >
                   <span className="text-meta text-text-muted">{rel.direction === 'out' ? '→' : '←'}</span>
                   <Badge label={rel.type} />
-                  <span className="font-mono text-meta text-text">{rel.displayId}</span>
+                  <CopyId value={rel.displayId} className="font-mono text-meta text-text">{rel.displayId}</CopyId>
                 </button>
               </li>
             ))}
@@ -106,17 +104,7 @@ export function NodeDetailsPanel({
       {revisions && revisions.length > 0 && (
         <section aria-label="История ревизий" className="flex flex-col gap-2">
           <h3 className="text-ui font-semibold text-text">История ревизий</h3>
-          <ol className="flex flex-col gap-2 text-ui">
-            {[...revisions].reverse().map((rev) => (
-              <li key={rev.number} className="rounded-control border border-border p-2">
-                <div className="text-meta text-text-muted">
-                  ревизия {rev.number} · {new Date(rev.created_at).toLocaleString('ru-RU')}
-                </div>
-                <div className="text-text">{rev.title}</div>
-                {rev.exemption_reason && <div className="text-meta text-text-muted">исключение: {rev.exemption_reason}</div>}
-              </li>
-            ))}
-          </ol>
+          <RevisionHistory revs={revisions} />
         </section>
       )}
 

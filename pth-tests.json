@@ -1,7 +1,0 @@
-[
-  {"test": "PTH-TEST-001", "command": "{python} -m pytest -q server/tests/test_api.py -k lost"},
-  {"test": "PTH-TEST-002", "command": "{python} -m pytest -q server/tests/test_api.py -k 'without_token or reader or writer or revoked or hashes'"},
-  {"test": "PTH-TEST-003", "command": "{python} -m pytest -q server/tests/test_api.py -k import"},
-  {"test": "PTH-TEST-004", "command": "{python} -m pytest -q server/tests/test_api.py -k changeset"},
-  {"test": "PTH-TEST-005", "command": "{python} -m pytest -q server/tests/test_api.py -k graph"}
-]

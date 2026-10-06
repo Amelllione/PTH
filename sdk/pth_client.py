@@ -69,8 +69,30 @@ class PTHClient:
         """Черновик ChangeSet. Ничего не меняет в проекте до apply_changeset."""
         return self._request("POST", f"/projects/{key}/changesets", json={"title": title, "operations": operations})
 
+    def attach(self, key: str, evidence_uid: str, path: str, name: str | None = None) -> dict:
+        """Приложить файл (отчёт нагрузки, SARIF, Allure-архив) к уже записанному запуску."""
+        from pathlib import Path as _P
+        file = _P(path)
+        return self._request("POST", f"/projects/{key}/evidence/{evidence_uid}/attachments",
+                             params={"name": name or file.name}, content=file.read_bytes(),
+                             headers={"Content-Type": "application/octet-stream"})
+
+    def sync_commits(self, key: str) -> dict:
+        """Зарегистрировать в PTH все коммиты подключённого репозитория, которых ещё нет (идемпотентно)."""
+        return self._request("POST", f"/projects/{key}/git/sync")
+
+    def link_commit(self, key: str, sha: str, implements: list[str]) -> dict:
+        """Добавить связи implements к уже зарегистрированному коммиту."""
+        return self._request("POST", f"/projects/{key}/commits/{sha}/implements", json={"implements": implements})
+
+    def tests_status(self, key: str) -> dict:
+        return self._request("GET", f"/projects/{key}/tests")
+
     def impact(self, key: str, focus: str, depth: int = 2) -> dict:
         return self._request("GET", f"/projects/{key}/impact", params={"focus": focus, "depth": depth})
+
+    def impact_rules(self, key: str) -> dict:
+        return self._request("GET", f"/projects/{key}/impact-rules")
 
     def register_commit(self, key: str, sha: str, title: str, implements: list[str]) -> dict:
         """Регистрирует коммит и связывает его с требованиями (implements). Это claim, не доказательство."""
@@ -116,8 +138,9 @@ class PTHClient:
     def artifact(self, key: str, display_id: str) -> dict:
         return self._request("GET", f"/projects/{key}/artifacts/{display_id}")
 
-    def lost(self, key: str, type_: str | None = None, priority: str | None = None) -> dict:
-        params = {k: v for k, v in {"type": type_, "priority": priority}.items() if v}
+    def lost(self, key: str, type_: str | None = None, priority: str | None = None,
+             reason: str | None = None) -> dict:
+        params = {k: v for k, v in {"type": type_, "priority": priority, "reason": reason}.items() if v}
         return self._request("GET", f"/projects/{key}/lost", params=params)
 
     def graph(self, key: str, focus: str, depth: int = 2, direction: str = "both",
@@ -178,6 +201,12 @@ def _cli(argv: list[str]) -> int:
     p_imp2.add_argument("key")
     p_imp2.add_argument("focus")
     p_imp2.add_argument("--depth", type=int, default=2)
+    p_attach = sub.add_parser("attach", help="приложить файл отчёта к запуску теста")
+    p_attach.add_argument("key")
+    p_attach.add_argument("evidence")
+    p_attach.add_argument("path")
+    p_imp_rules = sub.add_parser("impact-rules", help="встроенные и свои правила влияния с пояснениями")
+    p_imp_rules.add_argument("key")
     p_com = sub.add_parser("commit")
     p_com.add_argument("key")
     p_com.add_argument("sha")
@@ -219,6 +248,8 @@ def _cli(argv: list[str]) -> int:
     p_lost.add_argument("key")
     p_lost.add_argument("--type")
     p_lost.add_argument("--priority")
+    p_lost.add_argument("--reason", choices=["no_reflection", "no_code_link"],
+                        help="no_reflection — потерянные (по умолчанию); no_code_link — не реализованные")
     p_graph = sub.add_parser("graph")
     p_graph.add_argument("key")
     p_graph.add_argument("focus")
@@ -251,6 +282,10 @@ def _cli(argv: list[str]) -> int:
             result = api.baselines(args.key)
         elif args.cmd == "impact":
             result = api.impact(args.key, args.focus, depth=args.depth)
+        elif args.cmd == "attach":
+            result = api.attach(args.key, args.evidence, args.path)
+        elif args.cmd == "impact-rules":
+            result = api.impact_rules(args.key)
         elif args.cmd == "commit":
             result = api.register_commit(args.key, args.sha, args.title, args.implements)
         elif args.cmd == "review":
@@ -277,7 +312,7 @@ def _cli(argv: list[str]) -> int:
         elif args.cmd == "artifacts":
             result = api.artifacts(args.key, args.type)
         elif args.cmd == "lost":
-            result = api.lost(args.key, args.type, args.priority)
+            result = api.lost(args.key, args.type, args.priority, args.reason)
         else:
             result = api.graph(args.key, args.focus, depth=args.depth)
     except PTHError as exc:

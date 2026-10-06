@@ -4,12 +4,18 @@ import { useAsync } from '@/shared/lib/useAsync';
 import { Button, Pager, TextField } from '@/shared/ui';
 import { DataTable, Loaded, Section } from './common';
 import { ArtifactCard } from './ArtifactCard';
+import { CopyId } from '@/shared/ui/CopyId';
 
 export function RegistryScreen({ projectKey, initialType = '' }: { projectKey: string; initialType?: string }) {
   const [query, setQuery] = useState('');
   const [type, setType] = useState(initialType);
   const [submitted, setSubmitted] = useState({ q: '', type: initialType });
   const [selected, setSelected] = useState<string | null>(null);
+  // Переход по связи открывает другую карточку с начала страницы; key сбрасывает режим редактирования.
+  const openCard = (displayId: string) => {
+    setSelected(displayId);
+    window.scrollTo({ top: 0 });
+  };
   const [page, setPage] = useState(0);
   const PAGE = 20;
   const list = useAsync(`registry:${projectKey}:${submitted.q}:${submitted.type}:${page}`, async () => {
@@ -20,6 +26,18 @@ export function RegistryScreen({ projectKey, initialType = '' }: { projectKey: s
     return pthApi.artifactsPage(projectKey, page * PAGE, PAGE, submitted.type || undefined);
   });
 
+  // Карточка открывается на весь экран; поиск, тип и страница сохраняются при возврате.
+  if (selected) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div>
+          <Button variant="secondary" size="sm" onClick={() => setSelected(null)}>Назад к списку</Button>
+        </div>
+        <ArtifactCard key={selected} projectKey={projectKey} displayId={selected} onOpen={openCard} />
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <Section title="Реестр" hint="Поиск по ID, названию и тексту текущих ревизий. Выберите элемент, чтобы открыть карточку.">
@@ -29,7 +47,7 @@ export function RegistryScreen({ projectKey, initialType = '' }: { projectKey: s
             Тип
             <select value={type} onChange={(e) => setType(e.target.value)} className="h-9 rounded-control border border-control-border bg-surface px-2 text-ui text-text">
               <option value="">все</option>
-              {['US', 'FR', 'NFR', 'AC', 'ADR', 'TEST', 'COMMIT'].map((t) => <option key={t} value={t}>{t}</option>)}
+              {['US', 'FR', 'NFR', 'AC', 'ADR', 'TEST', 'COMMIT', 'DIAGRAM'].map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
           </label>
           <Button type="submit" variant="secondary">Найти</Button>
@@ -39,6 +57,8 @@ export function RegistryScreen({ projectKey, initialType = '' }: { projectKey: s
             <DataTable
               caption="Элементы проекта"
               columns="8rem 5rem minmax(0,1fr) 6rem 7rem"
+              onRowSelect={(i) => setSelected(rows[i].display_id)}
+              selectedIndex={rows.findIndex((r) => r.display_id === selected)}
               headers={['ID', 'Тип', 'Название', 'Ревизия', 'Исключение']}
               footer={
                 submitted.q ? (
@@ -48,7 +68,7 @@ export function RegistryScreen({ projectKey, initialType = '' }: { projectKey: s
                 )
               }
               rows={rows.map((r) => [
-                <button key="id" type="button" className="font-mono text-meta text-accent-text underline-offset-2 hover:underline" onClick={() => setSelected(r.display_id)} aria-pressed={selected === r.display_id}>{r.display_id}</button>,
+                <CopyId key="id" value={r.display_id}><button type="button" className="font-mono text-meta text-accent-text underline-offset-2 hover:underline" onClick={() => setSelected(r.display_id)} aria-pressed={selected === r.display_id}>{r.display_id}</button></CopyId>,
                 <span key="t" className="text-meta font-semibold text-text-muted">{r.type}</span>,
                 <span key="n" className="text-text">{r.title}</span>,
                 String(r.revision),
@@ -59,7 +79,6 @@ export function RegistryScreen({ projectKey, initialType = '' }: { projectKey: s
         </Loaded>
       </Section>
 
-      {selected && <ArtifactCard projectKey={projectKey} displayId={selected} />}
     </div>
   );
 }
