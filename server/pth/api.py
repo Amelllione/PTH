@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from fastapi import APIRouter, Depends, FastAPI, Query, Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from pth import auth, domain, importer, jobs, llm, releases
@@ -1363,6 +1364,16 @@ def _mark_interrupted_jobs(session_factory) -> None:
             session.commit()
 
 
+# Конфликты уникальности, которые проверка в коде не ловит при параллельной записи: (признаки в тексте ошибки, код, сообщение).
+_UNIQUE_CONFLICTS = [
+    (("artifacts.title_key", "uq_artifacts_test_title"), "TEST_EXISTS", "TEST с таким названием уже есть (параллельная запись)"),
+    (("relations.type, relations.source_uid, relations.target_uid", "relations_type_source_uid_target_uid_key"),
+     "DUPLICATE_RELATION", "Такая связь уже есть (параллельная запись)"),
+    (("artifacts.project_key, artifacts.external_key", "artifacts_project_key_external_key_key"),
+     "COMMIT_EXISTS", "Коммит уже зарегистрирован (параллельная запись)"),
+]
+
+
 def create_app(database_url: str | None = None) -> FastAPI:
     url = database_url or os.environ.get("PTH_DATABASE_URL", DEFAULT_DB)
     engine = make_engine(url)
@@ -1385,5 +1396,15 @@ def create_app(database_url: str | None = None) -> FastAPI:
     async def domain_error(_: Request, exc: domain.DomainError):
         return JSONResponse(status_code=exc.status,
                             content={"error": {"code": exc.code, "message": exc.message}})
+
+    @app.exception_handler(IntegrityError)
+    async def integrity_error(_: Request, exc: IntegrityError):
+        # Параллельные запросы прошли проверку в коде одновременно; второго остановил уникальный индекс.
+        # SQLite называет колонки («artifacts.project_key, artifacts.title_key»), PostgreSQL — имя ограничения.
+        detail = str(exc.orig)
+        for markers, code, message in _UNIQUE_CONFLICTS:
+            if any(m in detail for m in markers):
+                return JSONResponse(status_code=409, content={"error": {"code": code, "message": message}})
+        raise exc
 
     return app

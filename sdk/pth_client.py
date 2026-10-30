@@ -150,20 +150,26 @@ class PTHClient:
         return self._request("GET", f"/projects/{key}/relations")
 
     def register_test(self, key: str, title: str, verifies: list[str], coverage: str = "full",
-                      gaps: list[str] | None = None) -> dict:
+                      gaps: list[str] | None = None, _retry: bool = True) -> dict:
         """Заводит TEST со связями verifies. Повторный вызов с тем же названием не создаёт дубль, а
         добавляет недостающие связи: артефакты неизменяемы и через API не удаляются. Требования
         проверяются до создания, чтобы опечатка в ID не оставила TEST без связей."""
         targets = [self.artifact(key, d)["display_id"] for d in verifies]
-        norm = " ".join(title.split())  # пробелы схлопнуты, регистр важен
+        norm = " ".join(title.split())  # как ключ уникальности на сервере: пробелы схлопнуты, регистр важен
         same = [a for a in self.artifacts(key, "TEST") if " ".join(a["title"].split()) == norm]
         if same:  # при старых дублях канонический — с меньшим номером (сортировка по строке ломается после 999)
             test, created = min(same, key=lambda a: int(a["display_id"].rsplit("-", 1)[1])), False
         else:
             attributes = {"coverage": coverage, **({"coverage_gaps": gaps} if gaps else {})}
-            test = self._request("POST", f"/projects/{key}/artifacts",
-                                 json={"type": "TEST", "title": title, "attributes": attributes})
-            created = True
+            try:
+                test = self._request("POST", f"/projects/{key}/artifacts",
+                                     json={"type": "TEST", "title": title, "attributes": attributes})
+                created = True
+            except PTHError as exc:
+                if exc.code != "TEST_EXISTS" or not _retry:
+                    raise
+                # тот же тест параллельно завёл кто-то ещё — берём его
+                return self.register_test(key, title, verifies, coverage, gaps, _retry=False)
         tid = test["display_id"]
         linked = {r["target"] for r in self.relations(key) if r["type"] == "verifies" and r["source"] == tid}
         added = []

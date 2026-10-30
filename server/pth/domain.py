@@ -9,7 +9,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from pth.models import Artifact, ArtifactRevision, Project, Relation, new_uid, utcnow
@@ -91,13 +91,15 @@ def latest_revision(session: Session, artifact: Artifact) -> ArtifactRevision:
 
 
 def _next_number(session: Session, key: str, type_: str) -> int:
-    current = session.scalar(
-        select(Artifact.number)
-        .where(Artifact.project_key == key, Artifact.type == type_)
-        .order_by(Artifact.number.desc())
-        .limit(1)
-    )
-    return (current or 0) + 1
+    """Следующий номер из счётчика artifact_sequences. Счётчик не ниже текущего максимума: артефакты с
+    номерами, выданными в обход счётчика (импорт, ChangeSet), его подтягивают. UPDATE держит блокировку записи
+    до конца транзакции, поэтому параллельный запрос получит следующий номер, а не тот же."""
+    params = {"k": key, "t": type_}
+    session.execute(text("INSERT INTO artifact_sequences (project_key, type, last) VALUES (:k, :t, 0) "
+                         "ON CONFLICT (project_key, type) DO NOTHING"), params)
+    return session.execute(text(
+        "UPDATE artifact_sequences SET last = MAX(last, (SELECT COALESCE(MAX(number), 0) FROM artifacts "
+        "WHERE project_key = :k AND type = :t)) + 1 WHERE project_key = :k AND type = :t RETURNING last"), params).scalar_one()
 
 
 # --- команды -------------------------------------------------------------------

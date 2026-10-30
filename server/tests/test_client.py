@@ -96,11 +96,11 @@ def test_register_test_partial_requires_gaps(api):
 
 
 def test_register_test_reuses_lowest_numbered_duplicate(api, tmp_path):
-    """Дубли TEST, заведённые раньше (скриптами в обход клиента): берётся канонический — с меньшим номером."""
+    """Дубли TEST остались в данных до уникальности (миграция 10): берётся канонический — с меньшим номером."""
     import sqlite3
     api.import_spec("PTH", "spec.md", SNIPPET, mode="apply")
     api._request("POST", "/projects/PTH/artifacts", json={"type": "TEST", "title": "pytest: dup"})
-    with sqlite3.connect(tmp_path / "c.db") as con:  # старый дубль
+    with sqlite3.connect(tmp_path / "c.db") as con:  # старый дубль: без ключа уникальности
         con.execute("INSERT INTO artifacts (uid, project_key, type, number, display_id, created_at) "
                     "VALUES ('d', 'PTH', 'TEST', 2, 'PTH-TEST-002', '2026-01-01')")
         con.execute("INSERT INTO artifact_revisions (uid, artifact_uid, number, title, text, attributes, created_at) "
