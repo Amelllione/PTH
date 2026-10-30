@@ -17,6 +17,8 @@
     sdk/pth lost PTH --type FR
     sdk/pth graph PTH PTH-US-001 --depth 2
     sdk/pth test PTH "pytest: test_x" --verifies PTH-FR-001 --coverage partial --gap "нет отказа сети"
+    sdk/pth archive PTH PTH-TEST-007 --reason "дубль" --replaced-by PTH-TEST-003
+    sdk/pth restore PTH PTH-TEST-007
 
 Зависимость: httpx. Ошибки API поднимаются как PTHError с полями status, code, message.
 """
@@ -191,6 +193,14 @@ class PTHClient:
     def artifact(self, key: str, display_id: str) -> dict:
         return self._request("GET", f"/projects/{key}/artifacts/{display_id}")
 
+    def archive(self, key: str, display_id: str, reason: str, replaced_by: str | None = None) -> dict:
+        """В архив вместо удаления: ревизии, связи и ID остаются, из анализа элемент выпадает."""
+        body = {"reason": reason, **({"replaced_by": replaced_by} if replaced_by else {})}
+        return self._request("POST", f"/projects/{key}/artifacts/{display_id}/archive", json=body)
+
+    def restore(self, key: str, display_id: str) -> dict:
+        return self._request("POST", f"/projects/{key}/artifacts/{display_id}/restore")
+
     def lost(self, key: str, type_: str | None = None, priority: str | None = None,
              reason: str | None = None) -> dict:
         params = {k: v for k, v in {"type": type_, "priority": priority, "reason": reason}.items() if v}
@@ -266,6 +276,14 @@ def _cli(argv: list[str]) -> int:
     p_test.add_argument("--verifies", nargs="+", required=True)
     p_test.add_argument("--coverage", choices=["full", "partial"], default="full")
     p_test.add_argument("--gap", action="append", help="что не покрыто (обязательно при partial; можно несколько)")
+    p_arch = sub.add_parser("archive", help="убрать артефакт в архив (вместо удаления; ID и история остаются)")
+    p_arch.add_argument("key")
+    p_arch.add_argument("display_id")
+    p_arch.add_argument("--reason", required=True)
+    p_arch.add_argument("--replaced-by", help="display_id элемента, который его заменяет")
+    p_rest = sub.add_parser("restore", help="вернуть артефакт из архива новой ревизией")
+    p_rest.add_argument("key")
+    p_rest.add_argument("display_id")
     p_com = sub.add_parser("commit")
     p_com.add_argument("key")
     p_com.add_argument("sha")
@@ -350,6 +368,10 @@ def _cli(argv: list[str]) -> int:
             if args.coverage == "partial" and not args.gap:
                 p_test.error("при --coverage partial укажите --gap: что не покрыто")
             result = api.register_test(args.key, args.title, args.verifies, args.coverage, args.gap)
+        elif args.cmd == "archive":
+            result = api.archive(args.key, args.display_id, args.reason, args.replaced_by)
+        elif args.cmd == "restore":
+            result = api.restore(args.key, args.display_id)
         elif args.cmd == "commit":
             result = api.register_commit(args.key, args.sha, args.title, args.implements)
         elif args.cmd == "review":

@@ -43,6 +43,8 @@ export interface GraphNode {
   reasons: LostReason[];
   /** Расстояние от центра графа в связях. */
   level?: number;
+  /** Центр графа в архиве. */
+  archived?: boolean;
 }
 
 export interface GraphEdge {
@@ -68,6 +70,10 @@ export interface ArtifactDetail {
   attributes: Record<string, unknown>;
   exemption_reason: string | null;
   created_at: string;
+  /** Архив вместо удаления: элемент выпал из анализа, история и ID сохранены. */
+  archived_at?: string | null;
+  archive_reason?: string | null;
+  replaced_by?: string | null;
 }
 
 export interface ImportChange {
@@ -575,7 +581,10 @@ export interface SourceCompare {
 /** Операция ChangeSet человеческим языком и результат проверки применения. */
 export interface ChangeOp {
   index: number;
-  kind: 'create' | 'revise' | 'link' | 'unlink' | string | undefined;
+  kind: 'create' | 'revise' | 'link' | 'unlink' | 'archive' | 'restore' | string | undefined;
+  /** archive: причина и преемник. */
+  reason?: string | null;
+  replaced_by?: string | null;
   status?: 'ok' | 'error' | 'skipped';
   error?: string;
   code?: string;

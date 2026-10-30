@@ -26,6 +26,10 @@ class Artifact(Base):
     # Нормализованное текущее название — только у TEST (у остальных пусто). Ведёт _sync_test_title_keys.
     title_key: Mapped[str | None] = mapped_column(String(300), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # Архив вместо удаления (спека §5.4): данные, ревизии и ID сохраняются; восстановление — новой ревизией.
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    archive_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    replaced_by_uid: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
 
 class ArtifactSequence(Base):
@@ -64,6 +68,8 @@ class Relation(Base):
     target_uid: Mapped[str] = mapped_column(ForeignKey("artifacts.uid"), index=True)
     status: Mapped[str] = mapped_column(String(20), default="confirmed")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # Связь в архиве (ChangeSet delete_relation): в анализе не участвует, повторное создание её возвращает.
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 def test_title_key(title: str) -> str:

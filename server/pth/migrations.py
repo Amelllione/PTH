@@ -107,9 +107,21 @@ def _m11_artifact_sequences(engine: Engine) -> None:
     Base.metadata.create_all(engine)
 
 
+def _m12_archive(engine: Engine) -> None:
+    """Архив вместо удаления: отметка, причина и «заменён на» у артефакта, отметка у связи."""
+    columns = {"artifacts": [("archived_at", "DATETIME"), ("archive_reason", "TEXT"), ("replaced_by_uid", "VARCHAR(36)")],
+               "relations": [("archived_at", "DATETIME")]}
+    with engine.begin() as conn:
+        for table, cols in columns.items():
+            have = {row[1] for row in conn.execute(text(f"PRAGMA table_info({table})"))}
+            for name, kind in cols:
+                if name not in have:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {kind}"))
+
+
 MIGRATIONS = [(1, _m1_baseline), (2, _m2_evidence_baselines), (3, _m3_audit_review), (4, _m4_git_trust),
               (5, _m5_impact_rules), (6, _m6_impact_rule_text), (7, _m7_impact_rule_focus), (8, _m8_attachments), (9, _m9_releases),
-              (10, _m10_test_title_unique), (11, _m11_artifact_sequences)]
+              (10, _m10_test_title_unique), (11, _m11_artifact_sequences), (12, _m12_archive)]
 
 
 def current_version(engine: Engine) -> int:

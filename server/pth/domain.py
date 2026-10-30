@@ -48,8 +48,16 @@ class Analysis:
     reflected: set[str] = field(default_factory=set)
     # реализованы только коммитами с sha_verified=false (PTH-FR-081: «commit без проверки»); старые коммиты без флага не считаются
     unverified_only: set[str] = field(default_factory=set)
+    # Архивные артефакты: не в by_uid и не в relations (их связи выпадают из анализа), но доступны по uid —
+    # для карточки, графа от архивного элемента и составов релизов.
+    archived: dict[str, Artifact] = field(default_factory=dict)
+
+    def get(self, uid: str) -> Artifact:
+        return self.by_uid.get(uid) or self.archived[uid]
 
     def reasons(self, artifact: Artifact) -> list[str]:
+        if artifact.archived_at is not None:
+            return []
         rev = self.revisions[artifact.uid]
         if rev.exemption_reason or artifact.type == "COMMIT" or artifact.type == "ADR":
             return []
@@ -78,6 +86,13 @@ def get_artifact(session: Session, key: str, display_id: str) -> Artifact:
     )
     if artifact is None:
         raise DomainError(404, "ARTIFACT_NOT_FOUND", f"Артефакт {display_id} не найден")
+    return artifact
+
+
+def require_active(artifact: Artifact) -> Artifact:
+    """Архивный артефакт не меняют и не связывают: сначала восстановление (restore_artifact)."""
+    if artifact.archived_at is not None:
+        raise DomainError(409, "ARTIFACT_ARCHIVED", f"{artifact.display_id} в архиве: {artifact.archive_reason}")
     return artifact
 
 
@@ -180,7 +195,7 @@ def create_artifact(session, key, type_, title, text, attributes, exemption_reas
 
 
 def add_revision(session, key, display_id, title, text, attributes, exemption_reason, expected_revision):
-    artifact = get_artifact(session, key, display_id)
+    artifact = require_active(get_artifact(session, key, display_id))
     if artifact.type == "TEST":
         check_test_coverage("TEST", attributes)
     if artifact.type == "DIAGRAM":
@@ -201,8 +216,8 @@ def add_revision(session, key, display_id, title, text, attributes, exemption_re
 
 
 def create_relation(session, key, type_, source_id, target_id) -> Relation:
-    source = get_artifact(session, key, source_id)
-    target = get_artifact(session, key, target_id)
+    source = require_active(get_artifact(session, key, source_id))
+    target = require_active(get_artifact(session, key, target_id))
     if source.uid == target.uid:
         raise DomainError(422, "INVALID_RELATION", "Связь с самим собой запрещена")
     allowed_source, allowed_target = RELATION_RULES[type_]
@@ -214,6 +229,10 @@ def create_relation(session, key, type_, source_id, target_id) -> Relation:
     exists = session.scalar(select(Relation).where(
         Relation.type == type_, Relation.source_uid == source.uid, Relation.target_uid == target.uid,
     ))
+    if exists is not None and exists.archived_at is not None:
+        exists.archived_at = None  # связь из архива возвращается, а не создаётся второй (уникальность тройки)
+        session.flush()
+        return exists
     if exists is not None:
         raise DomainError(409, "DUPLICATE_RELATION", "Такая связь уже есть")
     relation = Relation(uid=new_uid(), project_key=key, type=type_, source_uid=source.uid,
@@ -247,7 +266,7 @@ def create_commit(session, key, sha, title, implements):
         Artifact.project_key == key, Artifact.external_key == sha,
     )) is not None:
         raise DomainError(409, "COMMIT_EXISTS", f"Коммит {sha} уже зарегистрирован")
-    targets = [get_artifact(session, key, d) for d in implements]
+    targets = [require_active(get_artifact(session, key, d)) for d in implements]
     for t in targets:
         if t.type not in RELATION_RULES["implements"][1]:
             raise DomainError(422, "INVALID_RELATION", f"Коммит не может реализовывать {t.type}")
@@ -285,6 +304,53 @@ def sync_commits(session, key: str, repo_path: str, limit: int = 1000) -> dict:
     return {"registered": created, "in_git": len(items), "already": len(items) - created}
 
 
+def archive_artifact(session, key: str, display_id: str, reason: str, replaced_by: str | None = None) -> Artifact:
+    """Архив вместо удаления (спека §5.4, PTH-US-014): ревизии, связи, свидетельства и ID остаются; элемент
+    выпадает из потерянных, соответствия, готовности и замечаний. Архивный TEST освобождает название.
+    Коммиты не архивируются: это запись о коде, а не проектное решение."""
+    artifact = require_active(get_artifact(session, key, display_id))
+    if artifact.type == "COMMIT":
+        raise DomainError(422, "COMMIT_NOT_ARCHIVABLE", "Коммит не архивируется: он фиксирует факт в Git")
+    if not (reason or "").strip():
+        raise DomainError(422, "ARCHIVE_REASON_REQUIRED", "Укажите причину архивирования")
+    if replaced_by:
+        successor = require_active(get_artifact(session, key, replaced_by))
+        if successor.uid == artifact.uid:
+            raise DomainError(422, "INVALID_REPLACEMENT", "Элемент не может заменять сам себя")
+        artifact.replaced_by_uid = successor.uid
+    artifact.archived_at, artifact.archive_reason, artifact.title_key = utcnow(), reason.strip(), None
+    session.flush()
+    return artifact
+
+
+def restore_artifact(session, key: str, display_id: str) -> tuple[Artifact, ArtifactRevision]:
+    """Восстановление — новой ревизией с текущим содержимым (спека §5.4). Для TEST название снова проверяется
+    на уникальность: если его занял другой тест, ответ 409 TEST_EXISTS."""
+    artifact = get_artifact(session, key, display_id)
+    if artifact.archived_at is None:
+        raise DomainError(409, "ARTIFACT_NOT_ARCHIVED", f"{display_id} не в архиве")
+    current = latest_revision(session, artifact)
+    artifact.archived_at = artifact.archive_reason = artifact.replaced_by_uid = None
+    rev = ArtifactRevision(uid=new_uid(), artifact_uid=artifact.uid, number=current.number + 1, title=current.title,
+                           text=current.text, attributes=current.attributes, exemption_reason=current.exemption_reason,
+                           created_at=utcnow())
+    session.add(rev)
+    session.flush()
+    return artifact, rev
+
+
+def archive_relation(session, key: str, type_: str, source_id: str, target_id: str) -> Relation:
+    source = get_artifact(session, key, source_id)
+    target = get_artifact(session, key, target_id)
+    rel = session.scalar(select(Relation).where(Relation.type == type_, Relation.source_uid == source.uid,
+                                                Relation.target_uid == target.uid, Relation.archived_at.is_(None)))
+    if rel is None:
+        raise DomainError(404, "RELATION_NOT_FOUND", f"Связи {type_} {source_id}→{target_id} нет")
+    rel.archived_at = utcnow()
+    session.flush()
+    return rel
+
+
 def link_commit(session, key: str, sha: str, implements: list[str]):
     """Добавляет связи implements к уже зарегистрированному коммиту; повтор уже существующей связи пропускается."""
     commit = session.scalar(select(Artifact).where(Artifact.project_key == key, Artifact.type == "COMMIT",
@@ -295,7 +361,7 @@ def link_commit(session, key: str, sha: str, implements: list[str]):
         Relation.project_key == key, Relation.type == "implements", Relation.source_uid == commit.uid))}
     added = []
     for d in implements:
-        target = get_artifact(session, key, d)
+        target = require_active(get_artifact(session, key, d))
         if target.type not in RELATION_RULES["implements"][1]:
             raise DomainError(422, "INVALID_RELATION", f"Коммит не может реализовывать {target.type}")
         if target.uid not in have:
@@ -314,15 +380,17 @@ def analyze(session: Session, key: str) -> Analysis:
     # ссылалась бы на ещё не прочитанный артефакт (KeyError → 500). Артефакт пишется раньше своих связей и вместе
     # с ревизией, поэтому всё, на что ссылаются прочитанные связи, попадёт в следующие запросы.
     relations = list(session.scalars(select(Relation).where(
-        Relation.project_key == key, Relation.status == "confirmed").order_by(Relation.created_at)))
+        Relation.project_key == key, Relation.status == "confirmed", Relation.archived_at.is_(None))
+        .order_by(Relation.created_at)))
     arts = list(session.scalars(select(Artifact).where(Artifact.project_key == key)))
-    a.by_uid = {x.uid: x for x in arts}
+    a.by_uid = {x.uid: x for x in arts if x.archived_at is None}
+    a.archived = {x.uid: x for x in arts if x.archived_at is not None}
     if arts:
         revs = session.scalars(select(ArtifactRevision).where(
-            ArtifactRevision.artifact_uid.in_(list(a.by_uid))).order_by(ArtifactRevision.number))
+            ArtifactRevision.artifact_uid.in_([x.uid for x in arts])).order_by(ArtifactRevision.number))
         for r in revs:  # по возрастанию номера: остаётся последняя
             a.revisions[r.artifact_uid] = r
-    a.relations = relations
+    a.relations = [r for r in relations if r.source_uid in a.by_uid and r.target_uid in a.by_uid]
     commits_of: dict[str, list[Artifact]] = {}
     for r in a.relations:
         s, t = a.by_uid[r.source_uid], a.by_uid[r.target_uid]
@@ -401,13 +469,13 @@ def graph(session, key, focus, depth, direction, limit, relation_types=None) -> 
 
     nodes = []
     for uid in visited:
-        art = a.by_uid[uid]
+        art = a.get(uid)
         reasons = a.reasons(art)
         # Потерян — только без отражения в ФТ/ADR; без связи с кодом — отдельно «не реализован».
         nodes.append({"display_id": art.display_id, "type": art.type,
                       "title": a.revisions[uid].title, "lost": "no_reflection" in reasons,
                       "not_implemented": "no_code_link" in reasons, "reasons": reasons,
-                      "level": visited[uid]})  # расстояние от центра в связях
+                      "archived": art.archived_at is not None, "level": visited[uid]})  # расстояние от центра в связях
     edges = [{"type": r.type, "source": a.by_uid[r.source_uid].display_id,
               "target": a.by_uid[r.target_uid].display_id}
              for r in relations if r.source_uid in visited and r.target_uid in visited]
@@ -703,13 +771,13 @@ def impact(session: Session, key: str, focus: str, depth: int = 2, limit: int = 
                 if other in visited or other == start.uid:
                     continue
                 art = a.by_uid[other]
-                matched = _matching_rules(rel.type, direction, a.by_uid[uid].type, art.type, custom)
+                matched = _matching_rules(rel.type, direction, a.get(uid).type, art.type, custom)
                 if not matched:
                     continue
                 if len(items) >= limit:
                     truncated = True
                     break
-                visited[other] = visited[uid] + (a.by_uid[uid].display_id,)
+                visited[other] = visited[uid] + (a.get(uid).display_id,)
                 items.append({"display_id": art.display_id, "type": art.type, "depth": level,
                               "path": [*visited[other], art.display_id],
                               "rule_id": matched[0][0], "rule_ids": [m[0] for m in matched],
@@ -738,7 +806,7 @@ def impact(session: Session, key: str, focus: str, depth: int = 2, limit: int = 
 def record_evidence(session: Session, key: str, test_id: str, result: str,
                     commit_sha: str | None, environment: dict) -> "Evidence":
     from pth.models import Evidence
-    test = get_artifact(session, key, test_id)
+    test = require_active(get_artifact(session, key, test_id))
     if test.type != "TEST":
         raise DomainError(422, "NOT_A_TEST", f"{test_id} — не TEST")
     if result not in {"pass", "fail", "blocked", "inconclusive"}:
@@ -758,7 +826,7 @@ def record_ci_results(session: Session, key: str, commit: str, oid: str | None, 
     for item in results:
         if not isinstance(item, dict):
             raise DomainError(422, "INVALID_RESULTS", "каждая запись — объект {test, result}")
-        test = get_artifact(session, key, str(item.get("test", "")))
+        test = require_active(get_artifact(session, key, str(item.get("test", ""))))
         if test.type != "TEST":
             raise DomainError(422, "NOT_A_TEST", f"{test.display_id} — не TEST")
         result = str(item.get("result", ""))
@@ -1298,8 +1366,14 @@ def domain_latest_number(session: Session, artifact) -> int | None:
     return latest_revision(session, artifact).number
 
 
-def artifacts_page(session: Session, key: str, type_: str | None, offset: int, limit: int) -> tuple[list, int]:
+def artifacts_page(session: Session, key: str, type_: str | None, offset: int, limit: int,
+                   archived: str = "exclude") -> tuple[list, int]:
+    """archived: exclude — только действующие (по умолчанию), only — только архив, include — все."""
     query = select(Artifact).where(Artifact.project_key == key)
+    if archived == "exclude":
+        query = query.where(Artifact.archived_at.is_(None))
+    elif archived == "only":
+        query = query.where(Artifact.archived_at.is_not(None))
     if type_:
         query = query.where(Artifact.type == type_)
     total = session.scalar(select(func.count()).select_from(query.subquery())) or 0
