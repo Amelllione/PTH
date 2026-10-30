@@ -18,8 +18,15 @@ def make_engine(url: str):
     # соединение было некому — запросы стояли до таймаута пула 30 с и падали 500.
     # База в памяти живёт, пока открыто соединение, — для неё остаётся пул SQLAlchemy по умолчанию.
     in_memory = url in ("sqlite://", "sqlite:///:memory:") or "mode=memory" in url
-    return create_engine(url, connect_args={"check_same_thread": False, "timeout": 30},
-                         **({} if in_memory else {"poolclass": NullPool}))
+    engine = create_engine(url, connect_args={"check_same_thread": False, "timeout": 30},
+                           **({} if in_memory else {"poolclass": NullPool}))
+    if not in_memory:
+        # WAL: чтения не ждут запись и наоборот. Режим записывается в файл, поэтому достаточно одного раза.
+        # Рядом с базой живут pth.db-wal и pth.db-shm: копию делают через scripts/backup_db.py (cp одного pth.db
+        # теряет данные из -wal), при восстановлении из копии -wal и -shm удаляют (docs/run-and-deploy.md).
+        with engine.connect() as conn:
+            conn.exec_driver_sql("PRAGMA journal_mode=WAL")
+    return engine
 
 
 def make_session_factory(engine):

@@ -74,3 +74,37 @@ def test_sqlite_file_engine_does_not_pool_connections(tmp_path):
         conn.exec_driver_sql("CREATE TABLE t (x)")
     with memory.connect() as conn:
         assert conn.exec_driver_sql("SELECT count(*) FROM t").scalar() == 0
+
+
+def test_sqlite_file_database_uses_wal(env, tmp_path):
+    """WAL: чтения не блокируют запись (под нагрузкой rollback-журнал давал таймауты)."""
+    import sqlite3
+    app, c, _ = env
+    with app.state.session_factory() as s:
+        assert s.connection().exec_driver_sql("PRAGMA journal_mode").scalar() == "wal"
+    with sqlite3.connect(tmp_path / "c.db") as con:  # режим записан в файл: его видит и сторонний клиент
+        assert con.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+
+
+
+def test_backup_includes_data_still_in_wal(env, tmp_path):
+    """Последние записи лежат в pth.db-wal до checkpoint: копия через backup_db их забирает, cp одного pth.db — нет."""
+    import shutil
+    import sqlite3
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    from backup_db import backup
+    app, c, _ = env
+    with sqlite3.connect(tmp_path / "c.db") as reader:  # открытое чтение не даёт checkpoint перенести WAL в файл
+        reader.execute("BEGIN")
+        reader.execute("SELECT count(*) FROM artifacts").fetchone()
+        for n in range(5):
+            assert c.post("/v1/projects/PTH/artifacts", json={"type": "FR", "title": f"f{n}"}).status_code == 201
+        assert (tmp_path / "c.db-wal").stat().st_size > 0
+        shutil.copy(tmp_path / "c.db", tmp_path / "plain.db")
+        assert backup(tmp_path / "c.db", tmp_path / "b.db")["integrity"] == "ok"
+    with sqlite3.connect(tmp_path / "b.db") as b:
+        assert b.execute("SELECT count(*) FROM artifacts WHERE type = 'FR'").fetchone()[0] == 5
+    with sqlite3.connect(tmp_path / "plain.db") as plain:
+        assert plain.execute("SELECT count(*) FROM artifacts WHERE type = 'FR'").fetchone()[0] < 5
