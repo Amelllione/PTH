@@ -1409,7 +1409,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app = FastAPI(
         title="Project Traceability Hub API",
         version="0.1.0",
-        description="Минимальный срез API по спеке PTH v0.1: проекты, артефакты с ревизиями, связи, коммиты, потерянные элементы, граф. Аутентификация и ChangeSet ещё не реализованы.",
+        description="API по спеке PTH v0.1 (срез E1). Что реализовано и проверено — docs/implementation-status.md.",
     )
     app.state.session_factory = make_session_factory(engine)
     _mark_interrupted_jobs(app.state.session_factory)
