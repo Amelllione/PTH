@@ -304,6 +304,9 @@ export interface ArtifactRow {
   attributes: Record<string, unknown>;
   exemption_reason: string | null;
   created_at: string;
+  archived_at?: string | null;
+  archive_reason?: string | null;
+  replaced_by?: string | null;
 }
 
 export interface RelationRow {
